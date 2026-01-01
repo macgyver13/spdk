@@ -9,7 +9,7 @@ crate-type = ["rlib"]
 
 [features]
 # Default: both sync and async APIs available, with parallelization
-default = ["parallel", "async"]
+default = ["parallel", "async", "dleq-native"]
 
 # Sync-only mode - excludes async code and async dependencies
 sync = []
@@ -20,22 +20,29 @@ async = ["dep:futures", "dep:async-trait"]
 # Enable CPU parallelization with rayon (native only, recommended)
 parallel = ["dep:rayon"]
 
+# DLEQ proof implementation options (mutually exclusive)
+# Native: Direct FFI to libsecp256k1 (default, uses vendored secp256k1)
+dleq-native = ["rust-dleq/native"]
+# Standalone: Pure Rust + rust-secp256k1 (portable)
+dleq-standalone = ["rust-dleq/standalone"]
+
 [dependencies]
 # Core dependencies - always available
-silentpayments.workspace = true
 anyhow.workspace = true
+base64.workspace = true
+bdk_coin_select.workspace = true
+bitcoin.workspace = true
+dnssec-prover.workspace = true
+hex.workspace = true
+hmac.workspace = true
+psbt-v2.workspace = true
+rust-dleq.workspace = true
+secp256k1.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-bitcoin.workspace = true
-hex.workspace = true
-bdk_coin_select.workspace = true
-psbt-v2.workspace = true
-secp256k1.workspace = true
-thiserror.workspace = true
-base64.workspace = true
 sha2.workspace = true
-hmac.workspace = true
-dnssec-prover.workspace = true
+silentpayments.workspace = true
+thiserror.workspace = true
 
 # Async dependencies - optional
 futures = { workspace = true, optional = true }
