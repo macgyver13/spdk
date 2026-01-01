@@ -9,7 +9,7 @@ crate-type = ["rlib"]
 
 [features]
 # Default: both sync and async APIs available, with parallelization
-default = ["parallel", "async"]
+default = ["parallel", "async", "dleq-standalone"]
 
 # Sync-only mode - excludes async code and async dependencies
 sync = []
@@ -19,6 +19,12 @@ async = ["dep:futures", "dep:async-trait"]
 
 # Enable CPU parallelization with rayon (native only, recommended)
 parallel = ["dep:rayon"]
+
+# DLEQ proof implementation options (mutually exclusive)
+# Standalone: Pure Rust + rust-secp256k1 (default, portable)
+dleq-standalone = ["rust-dleq/standalone"]
+# Native: Direct FFI to libsecp256k1 (requires secp256k1 submodule)
+dleq-native = ["rust-dleq/native"]
 
 [dependencies]
 # Core dependencies - always available
@@ -36,6 +42,7 @@ base64.workspace = true
 sha2.workspace = true
 hmac.workspace = true
 dnssec-prover.workspace = true
+rust-dleq.workspace = true
 
 # Async dependencies - optional
 futures = { workspace = true, optional = true }

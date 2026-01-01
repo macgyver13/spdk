@@ -12,7 +12,7 @@ spdk-core = { path = "spdk-core", version = "0.1.0" }
 
 # Core dependencies - shared across crates
 # silentpayments = "0.4"
-silentpayments = { path = "../rust-silentpayments" }
+silentpayments = { git = "https://github.com/macgyver13/rust-silentpayments.git", branch = "bip375-additions" }
 anyhow = "1.0"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
@@ -34,6 +34,7 @@ sha2 = "0.10"
 hmac = "0.12"
 dnssec-prover = "0.1"
 tempfile = "3.8"
+rust-dleq = { git = "https://github.com/macgyver13/rust-dleq.git", branch = "master", default-features = false }
 
 [workspace.package]
 repository = "https://github.com/cygnet3/spdk"
