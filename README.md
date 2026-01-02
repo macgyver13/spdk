@@ -16,7 +16,7 @@ SPDK integrates with [rust-dleq](https://github.com/macgyver13/rust-dleq) for BI
 - **`dleq-standalone`** (default): Pure Rust implementation using rust-secp256k1
 - **`dleq-native`**: Direct FFI to libsecp256k1 for better performance
 
-See [DLEQ_FEATURES.md](DLEQ_FEATURES.md) for detailed information about switching between implementations.
+See [DLEQ_FEATURES.md](docs/DLEQ_FEATURES.md) for detailed information about switching between implementations.
 
 ### Building
 
@@ -28,4 +28,24 @@ cargo build
 cargo build --no-default-features --features dleq-native,async,parallel
 ```
 
-See [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) for details about the rust-dleq integration.
+### Development Workflows
+
+This project includes a [`justfile`](justfile) with common development tasks. Install [just](https://github.com/casey/just) and run:
+
+```bash
+# Show available commands
+just
+
+# Common tasks
+just check    # Check spdk-core
+just build    # Build spdk-core
+just test     # Run tests
+just fmt      # Format code
+just lint     # Run clippy
+
+# DLEQ examples
+just run-dleq               # Run with default features
+just run-dleq-standalone    # Run with standalone implementation
+```
+
+

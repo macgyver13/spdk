@@ -35,10 +35,6 @@ pub fn from_psbt_v2_proof(proof: &PsbtV2DleqProof) -> RustDleqProof {
 // DLEQ Proof Generation and Verification
 // ============================================================================
 
-// ============================================================================
-// DLEQ Proof Generation and Verification
-// ============================================================================
-
 /// Generate a DLEQ proof using rust-dleq
 ///
 /// Proves that log_G(A) = log_B(C), i.e., A = a*G and C = a*B for some secret a.
