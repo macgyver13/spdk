@@ -539,8 +539,8 @@ impl SpClient {
                         } else if *sp_address == self.sp_receiver.get_change_address() {
                             return Ok(PsbtOutput::SilentPayment {
                                 amount: recipient.amount,
-                                address: self.get_receiving_address(),
-                                label: Some(0),
+                                address: *sp_address, // Use change address directly (already labeled)
+                                label: Some(0),       // Metadata: this is label 0 (change)
                             });
                         }
 
@@ -561,8 +561,8 @@ impl SpClient {
                                 if candidate == *sp_address {
                                     return Ok(PsbtOutput::SilentPayment {
                                         amount: recipient.amount,
-                                        address: self.get_receiving_address(),
-                                        label: Some(i),
+                                        address: *sp_address, // Use labeled address directly
+                                        label: Some(i),       // Metadata: this is label i
                                     });
                                 }
                             }
