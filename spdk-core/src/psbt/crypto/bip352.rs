@@ -6,6 +6,7 @@ use super::error::{CryptoError, Result};
 use bitcoin::hashes::{sha256, Hash, HashEngine};
 use bitcoin::key::TapTweak;
 use bitcoin::ScriptBuf;
+use psbt_v2::v2::Input;
 use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
 
 /// Compute label tweak for a silent payment address
@@ -171,6 +172,44 @@ pub fn script_type_string(script: &ScriptBuf) -> &'static str {
     } else {
         "Unknown"
     }
+}
+
+/// TODO: Very basic implmentation for testing - replace with spdk solution
+/// Check if an input is eligible for silent payments (BIP-352)
+pub fn is_input_eligible(input: &Input) -> bool {
+    // Check if input has witness_utxo
+    let witness_utxo = match &input.witness_utxo {
+        Some(utxo) => utxo,
+        None => return false,
+    };
+
+    let script = &witness_utxo.script_pubkey;
+
+    // P2WPKH (SegWit v0) - eligible
+    if script.is_p2wpkh() {
+        return true;
+    }
+
+    // P2TR (Taproot, SegWit v1) - eligible
+    if script.is_p2tr() {
+        return true;
+    }
+
+    // P2PKH (legacy) - eligible
+    if script.is_p2pkh() {
+        return true;
+    }
+
+    // P2SH - only eligible if it's P2SH-P2WPKH
+    if script.is_p2sh() {
+        if let Some(redeem_script) = &input.redeem_script {
+            return redeem_script.is_p2wpkh();
+        }
+        return false;
+    }
+
+    // All other types are ineligible (multisig, etc.)
+    false
 }
 
 /// Compute ECDH shared secret
