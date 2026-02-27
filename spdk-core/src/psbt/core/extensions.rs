@@ -43,6 +43,33 @@ pub const PSBT_OUT_DNSSEC_PROOF: u64 = 0x35;
 // Proposed BIP-376 extension fields for silent payment spend key derivation
 pub const PSBT_IN_SP_SPEND_BIP32_DERIVATION: u64 = 0x1f;
 pub const PSBT_IN_SP_TWEAK: u64 = 0x20;
+
+// Proposed BIP-375 extension: partial ECDH shares for MuSig2/FROST
+// These are proposed new fields not yet in the BIP-375 spec.
+// Key: scan_key (33B) || contributor_pubkey (33B) = 66 bytes
+// Value for PARTIAL_ECDH_SHARE: partial share point (33B)
+// Value for PARTIAL_DLEQ: DLEQ proof (64B)
+pub const PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE: u64 = 0x21;
+pub const PSBT_IN_MUSIG2_PARTIAL_DLEQ: u64 = 0x22;
+
+/// Partial ECDH share contributed by one MuSig2/FROST participant.
+///
+/// Each participant computes `partial_share = sk_i * scan_key` and provides a DLEQ proof
+/// proving `log_G(P_i) = log_{scan_key}(partial_share)`. The coordinator sums all partial
+/// shares to obtain the aggregate ECDH share `= agg_sk * scan_key`.
+///
+/// This implements the proposed BIP-375 extension for threshold/multisig ECDH.
+pub struct PartialEcdhShareData {
+    /// The scan key this partial share is for
+    pub scan_key: PublicKey,
+    /// The contributor's public key (P_i = sk_i * G)
+    pub contributor_pk: PublicKey,
+    /// The partial ECDH share (sk_i * scan_key)
+    pub share: PublicKey,
+    /// DLEQ proof: proves log_G(contributor_pk) = log_{scan_key}(share). Mandatory.
+    pub dleq_proof: DleqProof,
+}
+
 /// Extension trait for BIP-375 silent payment fields on PSBT v2
 ///
 /// This trait adds methods to access and modify BIP-375 specific fields:
@@ -232,6 +259,108 @@ pub trait Bip375PsbtExt {
     /// Iterates through all outputs and extracts scan keys from silent payment addresses.
     /// This is used by signers to determine which scan keys need ECDH shares.
     fn get_output_scan_keys(&self) -> Vec<PublicKey>;
+
+    // ===== BIP-373 MuSig2 Fields =====
+
+    /// Get MuSig2 participant pubkeys for an input
+    ///
+    /// Returns list of (aggregate_pk, participant_pks) tuples.
+    /// Field type: PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS (0x1a)
+    fn get_input_musig2_participant_pubkeys(
+        &self,
+        input_index: usize,
+    ) -> Vec<(PublicKey, Vec<PublicKey>)>;
+
+    /// Set MuSig2 participant pubkeys for an input
+    ///
+    /// Field type: PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS (0x1a)
+    /// Key: aggregate_pk (33B). Value: participant pubkeys concatenated (N*33B).
+    fn set_input_musig2_participant_pubkeys(
+        &mut self,
+        input_index: usize,
+        agg_pk: &PublicKey,
+        participants: &[PublicKey],
+    ) -> Result<()>;
+
+    /// Get MuSig2 participant pubkeys for an output
+    ///
+    /// Returns list of (aggregate_pk, participant_pks) tuples.
+    /// Field type: PSBT_OUT_MUSIG2_PARTICIPANT_PUBKEYS (0x1d)
+    fn get_output_musig2_participant_pubkeys(
+        &self,
+        output_index: usize,
+    ) -> Vec<(PublicKey, Vec<PublicKey>)>;
+
+    /// Set MuSig2 participant pubkeys for an output
+    ///
+    /// Field type: PSBT_OUT_MUSIG2_PARTICIPANT_PUBKEYS (0x1d)
+    /// Key: aggregate_pk (33B). Value: participant pubkeys concatenated (N*33B).
+    fn set_output_musig2_participant_pubkeys(
+        &mut self,
+        output_index: usize,
+        agg_pk: &PublicKey,
+        participants: &[PublicKey],
+    ) -> Result<()>;
+
+    /// Get MuSig2 public nonces for an input
+    ///
+    /// Returns list of (participant_pk, aggregate_pk, nonce_bytes) tuples.
+    /// Field type: PSBT_IN_MUSIG2_PUB_NONCE (0x1b)
+    fn get_input_musig2_pub_nonces(
+        &self,
+        input_index: usize,
+    ) -> Vec<(PublicKey, PublicKey, [u8; 66])>;
+
+    /// Add a MuSig2 public nonce for an input
+    ///
+    /// Field type: PSBT_IN_MUSIG2_PUB_NONCE (0x1b)
+    /// Key: participant_pk (33B) || aggregate_pk (33B). Value: 66-byte nonce.
+    fn add_input_musig2_pub_nonce(
+        &mut self,
+        input_index: usize,
+        participant_pk: &PublicKey,
+        agg_pk: &PublicKey,
+        nonce: [u8; 66],
+    ) -> Result<()>;
+
+    /// Get MuSig2 partial signatures for an input
+    ///
+    /// Returns list of (participant_pk, aggregate_pk, partial_sig_scalar) tuples.
+    /// Field type: PSBT_IN_MUSIG2_PARTIAL_SIG (0x1c)
+    fn get_input_musig2_partial_sigs(
+        &self,
+        input_index: usize,
+    ) -> Vec<(PublicKey, PublicKey, [u8; 32])>;
+
+    /// Add a MuSig2 partial signature for an input
+    ///
+    /// Field type: PSBT_IN_MUSIG2_PARTIAL_SIG (0x1c)
+    /// Key: participant_pk (33B) || aggregate_pk (33B). Value: 32-byte scalar.
+    fn add_input_musig2_partial_sig(
+        &mut self,
+        input_index: usize,
+        participant_pk: &PublicKey,
+        agg_pk: &PublicKey,
+        sig: [u8; 32],
+    ) -> Result<()>;
+
+    // ===== Proposed BIP-375 Extension: Partial ECDH Shares =====
+
+    /// Get partial ECDH shares for an input (proposed extension for MuSig2/FROST)
+    ///
+    /// Each entry represents one participant's contribution to the aggregate ECDH share.
+    /// Field types: PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE (0x21) + PSBT_IN_MUSIG2_PARTIAL_DLEQ (0x22)
+    fn get_input_partial_ecdh_shares(&self, input_index: usize) -> Vec<PartialEcdhShareData>;
+
+    /// Add a partial ECDH share for an input (proposed extension for MuSig2/FROST)
+    ///
+    /// Writes PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE and PSBT_IN_MUSIG2_PARTIAL_DLEQ entries.
+    /// Key for both: scan_key (33B) || contributor_pk (33B).
+    fn add_input_partial_ecdh_share(
+        &mut self,
+        input_index: usize,
+        partial: &PartialEcdhShareData,
+    ) -> Result<()>;
 }
 
 impl Bip375PsbtExt for Psbt {
@@ -527,6 +656,271 @@ impl Bip375PsbtExt for Psbt {
         }
         scan_keys
     }
+
+    fn get_input_musig2_participant_pubkeys(
+        &self,
+        input_index: usize,
+    ) -> Vec<(PublicKey, Vec<PublicKey>)> {
+        let Some(input) = self.inputs.get(input_index) else {
+            return Vec::new();
+        };
+
+        let mut result = Vec::new();
+        for (agg_key_compressed, participants_bytes) in &input.musig2_participant_pubkeys {
+            let agg_pk = agg_key_compressed.0;
+            let mut participants = Vec::new();
+            for chunk in participants_bytes.chunks(33) {
+                if let Ok(pk) = PublicKey::from_slice(chunk) {
+                    participants.push(pk);
+                }
+            }
+            result.push((agg_pk, participants));
+        }
+        result
+    }
+
+    fn set_input_musig2_participant_pubkeys(
+        &mut self,
+        input_index: usize,
+        agg_pk: &PublicKey,
+        participants: &[PublicKey],
+    ) -> Result<()> {
+        let input = self
+            .inputs
+            .get_mut(input_index)
+            .ok_or(Error::InvalidInputIndex(input_index))?;
+
+        let agg_compressed = CompressedPublicKey::try_from(bitcoin::PublicKey::new(*agg_pk))
+            .map_err(|_| Error::InvalidPublicKey)?;
+
+        let mut value = Vec::with_capacity(participants.len() * 33);
+        for pk in participants {
+            value.extend_from_slice(&pk.serialize());
+        }
+
+        input
+            .musig2_participant_pubkeys
+            .insert(agg_compressed, value);
+        Ok(())
+    }
+
+    fn get_output_musig2_participant_pubkeys(
+        &self,
+        output_index: usize,
+    ) -> Vec<(PublicKey, Vec<PublicKey>)> {
+        let Some(output) = self.outputs.get(output_index) else {
+            return Vec::new();
+        };
+
+        let mut result = Vec::new();
+        for (agg_key_compressed, participants_bytes) in &output.musig2_participant_pubkeys {
+            let agg_pk = agg_key_compressed.0;
+            let mut participants = Vec::new();
+            for chunk in participants_bytes.chunks(33) {
+                if let Ok(pk) = PublicKey::from_slice(chunk) {
+                    participants.push(pk);
+                }
+            }
+            result.push((agg_pk, participants));
+        }
+        result
+    }
+
+    fn set_output_musig2_participant_pubkeys(
+        &mut self,
+        output_index: usize,
+        agg_pk: &PublicKey,
+        participants: &[PublicKey],
+    ) -> Result<()> {
+        let output = self
+            .outputs
+            .get_mut(output_index)
+            .ok_or(Error::InvalidOutputIndex(output_index))?;
+
+        let agg_compressed = CompressedPublicKey::try_from(bitcoin::PublicKey::new(*agg_pk))
+            .map_err(|_| Error::InvalidPublicKey)?;
+
+        let mut value = Vec::with_capacity(participants.len() * 33);
+        for pk in participants {
+            value.extend_from_slice(&pk.serialize());
+        }
+
+        output
+            .musig2_participant_pubkeys
+            .insert(agg_compressed, value);
+        Ok(())
+    }
+
+    fn get_input_musig2_pub_nonces(
+        &self,
+        input_index: usize,
+    ) -> Vec<(PublicKey, PublicKey, [u8; 66])> {
+        let Some(input) = self.inputs.get(input_index) else {
+            return Vec::new();
+        };
+
+        let mut result = Vec::new();
+        for (compound_key, nonce_bytes) in &input.musig2_pub_nonces {
+            if compound_key.len() == 66 && nonce_bytes.len() == 66 {
+                if let (Ok(participant_pk), Ok(agg_pk)) = (
+                    PublicKey::from_slice(&compound_key[..33]),
+                    PublicKey::from_slice(&compound_key[33..]),
+                ) {
+                    let mut nonce = [0u8; 66];
+                    nonce.copy_from_slice(nonce_bytes);
+                    result.push((participant_pk, agg_pk, nonce));
+                }
+            }
+        }
+        result
+    }
+
+    fn add_input_musig2_pub_nonce(
+        &mut self,
+        input_index: usize,
+        participant_pk: &PublicKey,
+        agg_pk: &PublicKey,
+        nonce: [u8; 66],
+    ) -> Result<()> {
+        let input = self
+            .inputs
+            .get_mut(input_index)
+            .ok_or(Error::InvalidInputIndex(input_index))?;
+
+        let mut compound_key = Vec::with_capacity(66);
+        compound_key.extend_from_slice(&participant_pk.serialize());
+        compound_key.extend_from_slice(&agg_pk.serialize());
+
+        input.musig2_pub_nonces.insert(compound_key, nonce.to_vec());
+        Ok(())
+    }
+
+    fn get_input_musig2_partial_sigs(
+        &self,
+        input_index: usize,
+    ) -> Vec<(PublicKey, PublicKey, [u8; 32])> {
+        let Some(input) = self.inputs.get(input_index) else {
+            return Vec::new();
+        };
+
+        let mut result = Vec::new();
+        for (compound_key, sig_bytes) in &input.musig2_partial_sigs {
+            if compound_key.len() == 66 && sig_bytes.len() == 32 {
+                if let (Ok(participant_pk), Ok(agg_pk)) = (
+                    PublicKey::from_slice(&compound_key[..33]),
+                    PublicKey::from_slice(&compound_key[33..]),
+                ) {
+                    let mut sig = [0u8; 32];
+                    sig.copy_from_slice(sig_bytes);
+                    result.push((participant_pk, agg_pk, sig));
+                }
+            }
+        }
+        result
+    }
+
+    fn add_input_musig2_partial_sig(
+        &mut self,
+        input_index: usize,
+        participant_pk: &PublicKey,
+        agg_pk: &PublicKey,
+        sig: [u8; 32],
+    ) -> Result<()> {
+        let input = self
+            .inputs
+            .get_mut(input_index)
+            .ok_or(Error::InvalidInputIndex(input_index))?;
+
+        let mut compound_key = Vec::with_capacity(66);
+        compound_key.extend_from_slice(&participant_pk.serialize());
+        compound_key.extend_from_slice(&agg_pk.serialize());
+
+        input.musig2_partial_sigs.insert(compound_key, sig.to_vec());
+        Ok(())
+    }
+
+    fn get_input_partial_ecdh_shares(&self, input_index: usize) -> Vec<PartialEcdhShareData> {
+        let Some(input) = self.inputs.get(input_index) else {
+            return Vec::new();
+        };
+
+        // Collect partial shares keyed by (scan_key_bytes || contributor_pk_bytes)
+        let mut shares_map: std::collections::HashMap<Vec<u8>, (PublicKey, PublicKey, PublicKey)> =
+            std::collections::HashMap::new();
+
+        for (key, value) in &input.unknowns {
+            if key.type_value == PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE
+                && key.key.len() == 66
+                && value.len() == 33
+            {
+                if let (Ok(scan_key), Ok(contributor_pk), Ok(share)) = (
+                    PublicKey::from_slice(&key.key[..33]),
+                    PublicKey::from_slice(&key.key[33..]),
+                    PublicKey::from_slice(value),
+                ) {
+                    shares_map
+                        .entry(key.key.clone())
+                        .or_insert((scan_key, contributor_pk, share));
+                }
+            }
+        }
+
+        // Match with DLEQ proofs
+        let mut result = Vec::new();
+        for (compound_key_bytes, (scan_key, contributor_pk, share)) in shares_map {
+            let dleq_key = Key {
+                type_value: PSBT_IN_MUSIG2_PARTIAL_DLEQ,
+                key: compound_key_bytes,
+            };
+            if let Some(dleq_bytes) = input.unknowns.get(&dleq_key) {
+                if let Ok(arr) = <[u8; 64]>::try_from(dleq_bytes.as_slice()) {
+                    result.push(PartialEcdhShareData {
+                        scan_key,
+                        contributor_pk,
+                        share,
+                        dleq_proof: DleqProof(arr),
+                    });
+                }
+            }
+        }
+        result
+    }
+
+    fn add_input_partial_ecdh_share(
+        &mut self,
+        input_index: usize,
+        partial: &PartialEcdhShareData,
+    ) -> Result<()> {
+        let input = self
+            .inputs
+            .get_mut(input_index)
+            .ok_or(Error::InvalidInputIndex(input_index))?;
+
+        // Compound key: scan_key (33B) || contributor_pk (33B)
+        let mut compound_key = Vec::with_capacity(66);
+        compound_key.extend_from_slice(&partial.scan_key.serialize());
+        compound_key.extend_from_slice(&partial.contributor_pk.serialize());
+
+        // Write partial ECDH share
+        let share_key = Key {
+            type_value: PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE,
+            key: compound_key.clone(),
+        };
+        input
+            .unknowns
+            .insert(share_key, partial.share.serialize().to_vec());
+
+        // Write DLEQ proof
+        let dleq_key = Key {
+            type_value: PSBT_IN_MUSIG2_PARTIAL_DLEQ,
+            key: compound_key,
+        };
+        input
+            .unknowns
+            .insert(dleq_key, partial.dleq_proof.as_bytes().to_vec());
+
+        Ok(())
+    }
 }
 
 // Private helper functions for DLEQ proof management
@@ -653,8 +1047,7 @@ pub fn get_input_pubkey(psbt: &SilentPaymentPsbt, input_idx: usize) -> Result<Pu
 
     // Method 3: Extract from Witness utxo (for Taproot inputs)
     if let Some(witness_utxo) = input.witness_utxo.as_ref() {
-        if witness_utxo.script_pubkey.is_p2tr()
-        {
+        if witness_utxo.script_pubkey.is_p2tr() {
             if let Ok(x_only) = bitcoin::key::XOnlyPublicKey::from_slice(
                 &witness_utxo.script_pubkey.as_bytes()[2..34],
             ) {

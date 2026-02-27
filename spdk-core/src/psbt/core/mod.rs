@@ -16,7 +16,7 @@ pub mod types;
 pub use error::{Error, Result};
 pub use extensions::{
     get_input_outpoint, get_input_outpoint_bytes, get_input_pubkey, get_input_txid, get_input_vout,
-    Bip375PsbtExt, GlobalFieldsExt, InputFieldsExt, OutputFieldsExt,
+    Bip375PsbtExt, GlobalFieldsExt, InputFieldsExt, OutputFieldsExt, PartialEcdhShareData,
 };
 pub use shares::{
     aggregate_ecdh_shares, compute_sp_shared_secrets, AggregatedShare, AggregatedShares,

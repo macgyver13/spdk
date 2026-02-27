@@ -9,6 +9,7 @@
 pub mod bip352;
 pub mod dleq;
 pub mod error;
+pub mod musig2;
 pub mod signing;
 
 pub use bip352::*;

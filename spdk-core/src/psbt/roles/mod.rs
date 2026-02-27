@@ -22,18 +22,20 @@ pub mod creator;
 pub mod extractor;
 pub mod input_finalizer;
 pub mod input_witness_finalizer;
+pub mod musig2_signer;
 pub mod signer;
 pub mod updater;
 pub mod validation;
 
 #[cfg(test)]
-mod test_helpers;
+pub(crate) mod test_helpers;
 
 pub use constructor::*;
 pub use creator::*;
 pub use extractor::*;
 pub use input_finalizer::*;
 pub use input_witness_finalizer::*;
+pub use musig2_signer::*;
 pub use signer::*;
 pub use updater::*;
 pub use validation::*;

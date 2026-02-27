@@ -76,11 +76,29 @@ pub enum Error {
     #[error("Secp256k1 error: {0}")]
     Secp256k1(#[from] secp256k1::Error),
 
+    #[error("Crypto error: {0}")]
+    Crypto(#[from] crate::psbt::crypto::CryptoError),
+
     #[error("Hex decoding error: {0}")]
     Hex(#[from] hex::FromHexError),
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("MuSig2 nonces incomplete for input {0}: not all participants submitted nonces")]
+    MissingMusig2Nonces(usize),
+
+    #[error("MuSig2 partial signatures incomplete for input {0}: not all participants signed")]
+    MissingMusig2PartialSigs(usize),
+
+    #[error("Failed to aggregate partial ECDH shares")]
+    PartialEcdhAggregationFailed,
+
+    #[error("Invalid DLEQ proof for input {0}")]
+    InvalidDleqProof(usize),
+
+    #[error("MuSig2 error: {0}")]
+    Musig2(String),
 
     #[error("Other error: {0}")]
     Other(String),

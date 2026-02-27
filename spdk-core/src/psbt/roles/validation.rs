@@ -3,8 +3,8 @@
 //! Validates PSBTs according to BIP-375 rules.
 
 use crate::psbt::core::{
-    aggregate_ecdh_shares, compute_sp_shared_secrets, get_input_pubkey, Bip375PsbtExt, Error,
-    Result, SilentPaymentPsbt,
+    aggregate_ecdh_shares, compute_sp_shared_secrets, get_input_pubkey, Bip375PsbtExt,
+    Error, Result, SilentPaymentPsbt,
 };
 use crate::psbt::crypto::{
     derive_silent_payment_output_pubkey, dleq_verify_proof, is_input_eligible,
@@ -288,7 +288,7 @@ fn validate_output_scripts(
     secp: &Secp256k1<secp256k1::All>,
     psbt: &SilentPaymentPsbt,
 ) -> Result<()> {
-    let aggregated_shares = aggregate_ecdh_shares(psbt)?;
+    let aggregated_shares = aggregate_ecdh_shares(psbt, &secp)?;
     let shared_secrets = compute_sp_shared_secrets(secp, psbt, &aggregated_shares)?;
 
     if shared_secrets.is_empty() {

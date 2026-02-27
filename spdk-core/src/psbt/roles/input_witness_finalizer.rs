@@ -57,6 +57,9 @@ pub fn clear_input_signing_fields(psbt: &mut SilentPaymentPsbt, input_idx: usize
         input.tap_internal_key = None;
         input.tap_key_origins.clear();
         input.bip32_derivations.clear();
+        input.musig2_participant_pubkeys.clear();
+        input.musig2_pub_nonces.clear();
+        input.musig2_partial_sigs.clear();
     }
 
     // SP tweak is stored in unknowns via the extension trait; signing is done so clear it.
@@ -246,6 +249,9 @@ mod tests {
         assert!(psbt.inputs[0].tap_internal_key.is_none());
         assert!(psbt.inputs[0].tap_key_origins.is_empty());
         assert!(psbt.inputs[0].bip32_derivations.is_empty());
+        assert!(psbt.inputs[0].musig2_participant_pubkeys.is_empty());
+        assert!(psbt.inputs[0].musig2_pub_nonces.is_empty());
+        assert!(psbt.inputs[0].musig2_partial_sigs.is_empty());
         assert!(psbt.get_input_sp_tweak(0).is_none());
     }
 
