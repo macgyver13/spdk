@@ -3,7 +3,6 @@
 /// P2WPKH inputs require witness_utxo (via add_inputs) and bip32_derivations
 /// (via the updater role) for is_input_eligible and get_input_pubkey to work.
 /// These helpers encapsulate that setup so individual tests stay focused.
-
 use crate::psbt::core::{PsbtInput, PsbtOutput, SilentPaymentPsbt};
 use crate::psbt::crypto::pubkey_to_p2wpkh_script;
 use crate::psbt::roles::{
@@ -30,7 +29,7 @@ pub(super) fn make_p2wpkh_psbt(
 }
 
 /// Build a PSBT with `n` P2WPKH inputs and one silent payment output.
-pub(super) fn make_sp_psbt(
+pub(crate) fn make_sp_psbt(
     secp: &Secp256k1<secp256k1::All>,
     n_inputs: usize,
     sp_address: SilentPaymentAddress,
@@ -52,10 +51,7 @@ pub(super) fn make_sp_psbt(
     (psbt, inputs)
 }
 
-fn p2wpkh_inputs(
-    secp: &Secp256k1<secp256k1::All>,
-    n: usize,
-) -> (Vec<PsbtInput>, Vec<PublicKey>) {
+fn p2wpkh_inputs(secp: &Secp256k1<secp256k1::All>, n: usize) -> (Vec<PsbtInput>, Vec<PublicKey>) {
     let inputs: Vec<PsbtInput> = (1..=n)
         .map(|i| {
             let privkey = SecretKey::from_slice(&[i as u8; 32]).unwrap();

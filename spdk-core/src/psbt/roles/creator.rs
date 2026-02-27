@@ -35,6 +35,9 @@ pub fn create_psbt(num_inputs: usize, num_outputs: usize) -> SilentPaymentPsbt {
             tap_merkle_root: None,
             sp_ecdh_shares: std::collections::BTreeMap::new(),
             sp_dleq_proofs: std::collections::BTreeMap::new(),
+            musig2_participant_pubkeys: std::collections::BTreeMap::new(),
+            musig2_pub_nonces: std::collections::BTreeMap::new(),
+            musig2_partial_sigs: std::collections::BTreeMap::new(),
             unknowns: std::collections::BTreeMap::new(),
             min_time: None,
             min_height: None,
@@ -59,6 +62,7 @@ pub fn create_psbt(num_inputs: usize, num_outputs: usize) -> SilentPaymentPsbt {
             tap_key_origins: std::collections::BTreeMap::new(),
             sp_v0_info: None,
             sp_v0_label: None,
+            musig2_participant_pubkeys: std::collections::BTreeMap::new(),
             unknowns: std::collections::BTreeMap::new(),
             proprietaries: std::collections::BTreeMap::new(),
         });

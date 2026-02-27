@@ -29,7 +29,7 @@ pub fn finalize_sp_outputs(
     validate_ecdh_coverage(psbt)?;
 
     // Aggregate ECDH shares by scan key
-    let aggregated_shares = aggregate_ecdh_shares(psbt)?;
+    let aggregated_shares = aggregate_ecdh_shares(psbt, &secp)?;
     let shared_secrets = compute_sp_shared_secrets(secp, psbt, &aggregated_shares)?;
 
     // Track output index per scan key (for BIP 352 k parameter)
@@ -74,9 +74,7 @@ mod tests {
     use super::*;
     use crate::psbt::core::{PsbtInput, PsbtOutput};
     use crate::psbt::roles::{
-        constructor::add_outputs,
-        creator::create_psbt,
-        signer::add_ecdh_shares_full,
+        constructor::add_outputs, creator::create_psbt, signer::add_ecdh_shares_full,
         test_helpers::make_sp_psbt,
     };
     use bitcoin::hashes::Hash;
@@ -165,7 +163,10 @@ mod tests {
 
         let (mut psbt, inputs) = make_sp_psbt(&secp, 2, sp_address, 50000);
 
-        assert_ne!(psbt.global.tx_modifiable_flags, 0x00, "Initial flags should be non-zero");
+        assert_ne!(
+            psbt.global.tx_modifiable_flags, 0x00,
+            "Initial flags should be non-zero"
+        );
 
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();
         finalize_sp_outputs(&secp, &mut psbt).unwrap();

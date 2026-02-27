@@ -46,7 +46,9 @@ pub fn add_input_bip32_derivation(
         .map(|&i| ChildNumber::from(i))
         .collect();
 
-    input.bip32_derivations.insert(bitcoin::PublicKey::new(*pubkey), (fingerprint, path));
+    input
+        .bip32_derivations
+        .insert(bitcoin::PublicKey::new(*pubkey), (fingerprint, path));
 
     Ok(())
 }
