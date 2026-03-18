@@ -46,7 +46,7 @@ pub fn add_input_bip32_derivation(
         .map(|&i| ChildNumber::from(i))
         .collect();
 
-    input.bip32_derivations.insert(*pubkey, (fingerprint, path));
+    input.bip32_derivations.insert(bitcoin::PublicKey::new(*pubkey), (fingerprint, path));
 
     Ok(())
 }
@@ -72,7 +72,7 @@ pub fn add_output_bip32_derivation(
 
     output
         .bip32_derivations
-        .insert(*pubkey, (fingerprint, path));
+        .insert(bitcoin::PublicKey::new(*pubkey), (fingerprint, path));
 
     Ok(())
 }
@@ -194,9 +194,10 @@ mod tests {
 
         // Verify derivation was added
         let input = &psbt.inputs[0];
-        assert!(input.bip32_derivations.contains_key(&pubkey));
+        let btc_pubkey = bitcoin::PublicKey::new(pubkey);
+        assert!(input.bip32_derivations.contains_key(&btc_pubkey));
 
-        let (fp, path) = input.bip32_derivations.get(&pubkey).unwrap();
+        let (fp, path) = input.bip32_derivations.get(&btc_pubkey).unwrap();
         assert_eq!(fp.as_bytes(), &[0xAA, 0xBB, 0xCC, 0xDD]);
         assert_eq!(path.len(), 1);
     }

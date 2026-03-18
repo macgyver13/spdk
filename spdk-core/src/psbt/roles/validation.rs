@@ -324,8 +324,8 @@ fn validate_output_scripts(
 
         if output.script_pubkey != expected_script {
             return Err(Error::Other(format!(
-                "Output {} script mismatch: expected silent payment address doesn't match actual script",
-                output_idx
+                "Output {} script mismatch: expected silent payment address doesn't match actual script. Expected: {:?}, Actual: {:?}",
+                output_idx, expected_script, output.script_pubkey
             )));
         }
 

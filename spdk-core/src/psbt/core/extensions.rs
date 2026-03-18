@@ -646,7 +646,7 @@ pub fn get_input_pubkey(psbt: &SilentPaymentPsbt, input_idx: usize) -> Result<Pu
     if !input.bip32_derivations.is_empty() {
         // Return the first key
         if let Some(key) = input.bip32_derivations.keys().next() {
-            return Ok(*key);
+            return Ok(key.inner);
         }
     }
 
