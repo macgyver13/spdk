@@ -6,7 +6,7 @@ use super::error::{CryptoError, Result};
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::{sighash::SighashCache, Amount, ScriptBuf, Transaction};
 use hmac::{Hmac, Mac};
-use secp256k1::{ecdsa::Signature, Message, Secp256k1, SecretKey};
+use secp256k1::{Message, Secp256k1, SecretKey};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -113,7 +113,7 @@ pub fn sign_p2wpkh_input(
     let message = Message::from_digest(sighash.to_byte_array());
 
     // Sign the message
-    let signature = secp.sign_ecdsa(&message, privkey);
+    let signature = secp.sign_ecdsa_low_r(&message, privkey);
 
     // Serialize to DER format and append SIGHASH_ALL (0x01)
     let mut sig_bytes = signature.serialize_der().to_vec();
@@ -158,7 +158,7 @@ pub fn sign_p2pkh_input(
     let message = Message::from_digest(sighash.to_byte_array());
 
     // Sign the message
-    let signature = secp.sign_ecdsa(&message, privkey);
+    let signature = secp.sign_ecdsa_low_r(&message, privkey);
 
     // Serialize to DER format and append SIGHASH_ALL (0x01)
     let mut sig_bytes = signature.serialize_der().to_vec();
@@ -205,30 +205,6 @@ pub fn sign_p2tr_input(
     })
 }
 
-/// Sign a message hash with ECDSA (low-level function)
-///
-/// This is a lower-level function that signs a raw 32-byte hash.
-/// For transaction signing, use `sign_p2wpkh_input` instead.
-pub fn sign_hash(
-    secp: &Secp256k1<secp256k1::All>,
-    privkey: &SecretKey,
-    message_hash: &[u8; 32],
-) -> Result<Signature> {
-    let message = Message::from_digest(*message_hash);
-    Ok(secp.sign_ecdsa(&message, privkey))
-}
-
-/// Verify an ECDSA signature
-pub fn verify_signature(
-    secp: &Secp256k1<secp256k1::All>,
-    pubkey: &secp256k1::PublicKey,
-    message_hash: &[u8; 32],
-    signature: &Signature,
-) -> bool {
-    let message = Message::from_digest(*message_hash);
-    secp.verify_ecdsa(&message, signature, pubkey).is_ok()
-}
-
 /// Compute SHA256 hash
 pub fn sha256_hash(data: &[u8]) -> [u8; 32] {
     sha256::Hash::hash(data).to_byte_array()
@@ -262,28 +238,6 @@ mod tests {
         let different_message = [3u8; 32];
         let nonce3 = deterministic_nonce(&privkey, &different_message).unwrap();
         assert_ne!(nonce1.secret_bytes(), nonce3.secret_bytes());
-    }
-
-    #[test]
-    fn test_sign_hash() {
-        let secp = Secp256k1::new();
-        let privkey = SecretKey::from_slice(&[1u8; 32]).unwrap();
-        let pubkey = secp256k1::PublicKey::from_secret_key(&secp, &privkey);
-        let message_hash = [2u8; 32];
-
-        let signature = sign_hash(&secp, &privkey, &message_hash).unwrap();
-
-        // Verify the signature
-        assert!(verify_signature(&secp, &pubkey, &message_hash, &signature));
-
-        // Wrong message should fail
-        let wrong_message = [3u8; 32];
-        assert!(!verify_signature(
-            &secp,
-            &pubkey,
-            &wrong_message,
-            &signature
-        ));
     }
 
     #[test]
