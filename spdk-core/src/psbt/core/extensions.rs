@@ -39,9 +39,10 @@ use psbt_v2::{
 use silentpayments::secp256k1::PublicKey;
 use silentpayments::SilentPaymentAddress;
 
-pub const PSBT_OUT_DNSSEC_PROOF: u8 = 0x35;
-pub const PSBT_IN_SP_SPEND_BIP32_DERIVATION: u8 = 0x1f;
-pub const PSBT_IN_SP_TWEAK: u8 = 0x20;
+pub const PSBT_OUT_DNSSEC_PROOF: u64 = 0x35;
+// Proposed BIP-376 extension fields for silent payment spend key derivation
+pub const PSBT_IN_SP_SPEND_BIP32_DERIVATION: u64 = 0x1f;
+pub const PSBT_IN_SP_TWEAK: u64 = 0x20;
 /// Extension trait for BIP-375 silent payment fields on PSBT v2
 ///
 /// This trait adds methods to access and modify BIP-375 specific fields:
@@ -692,11 +693,11 @@ pub fn get_output_sp_keys(
 /// and any future additions to psbt_v2 — are returned automatically in serialization order.
 pub trait GlobalFieldsExt {
     /// Returns all global map fields as (field_type, key_data, value_data) tuples.
-    fn iter_global_fields(&self) -> Vec<(u8, Vec<u8>, Vec<u8>)>;
+    fn iter_global_fields(&self) -> Vec<(u64, Vec<u8>, Vec<u8>)>;
 }
 
 impl GlobalFieldsExt for psbt_v2::v2::Global {
-    fn iter_global_fields(&self) -> Vec<(u8, Vec<u8>, Vec<u8>)> {
+    fn iter_global_fields(&self) -> Vec<(u64, Vec<u8>, Vec<u8>)> {
         self.pairs()
             .into_iter()
             .map(|pair| (pair.key.type_value, pair.key.key, pair.value))
@@ -710,11 +711,11 @@ impl GlobalFieldsExt for psbt_v2::v2::Global {
 /// and any future additions to psbt_v2 — are returned automatically in serialization order.
 pub trait InputFieldsExt {
     /// Returns all input map fields as (field_type, key_data, value_data) tuples.
-    fn iter_input_fields(&self) -> Vec<(u8, Vec<u8>, Vec<u8>)>;
+    fn iter_input_fields(&self) -> Vec<(u64, Vec<u8>, Vec<u8>)>;
 }
 
 impl InputFieldsExt for psbt_v2::v2::Input {
-    fn iter_input_fields(&self) -> Vec<(u8, Vec<u8>, Vec<u8>)> {
+    fn iter_input_fields(&self) -> Vec<(u64, Vec<u8>, Vec<u8>)> {
         self.pairs()
             .into_iter()
             .map(|pair| (pair.key.type_value, pair.key.key, pair.value))
@@ -728,11 +729,11 @@ impl InputFieldsExt for psbt_v2::v2::Input {
 /// and any future additions to psbt_v2 — are returned automatically in serialization order.
 pub trait OutputFieldsExt {
     /// Returns all output map fields as (field_type, key_data, value_data) tuples.
-    fn iter_output_fields(&self) -> Vec<(u8, Vec<u8>, Vec<u8>)>;
+    fn iter_output_fields(&self) -> Vec<(u64, Vec<u8>, Vec<u8>)>;
 }
 
 impl OutputFieldsExt for psbt_v2::v2::Output {
-    fn iter_output_fields(&self) -> Vec<(u8, Vec<u8>, Vec<u8>)> {
+    fn iter_output_fields(&self) -> Vec<(u64, Vec<u8>, Vec<u8>)> {
         self.pairs()
             .into_iter()
             .map(|pair| (pair.key.type_value, pair.key.key, pair.value))
