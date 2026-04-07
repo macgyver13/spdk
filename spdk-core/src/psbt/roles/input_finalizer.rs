@@ -9,6 +9,7 @@ use crate::psbt::core::{
     SilentPaymentPsbt,
 };
 use crate::psbt::crypto::{derive_silent_payment_output_pubkey, tweaked_key_to_p2tr_script};
+use crate::psbt::roles::validation::validate_ecdh_coverage;
 use secp256k1::{PublicKey, Secp256k1};
 use std::collections::HashMap;
 
@@ -24,23 +25,11 @@ pub fn finalize_sp_outputs(
     secp: &Secp256k1<secp256k1::All>,
     psbt: &mut SilentPaymentPsbt,
 ) -> Result<()> {
-    // Aggregate ECDH shares by scan key (detects global vs per-input automatically)
+    // Verify all inputs contributed shares
+    validate_ecdh_coverage(psbt)?;
+
+    // Aggregate ECDH shares by scan key
     let aggregated_shares = aggregate_ecdh_shares(psbt)?;
-
-    // Verify all inputs contributed shares (unless global)
-    for (scan_key, aggregated) in aggregated_shares.iter() {
-        if !aggregated.is_global && aggregated.num_inputs != psbt.num_inputs() {
-            let output_idx = (0..psbt.num_outputs())
-                .find(|&i| {
-                    psbt.get_output_sp_info(i)
-                        .map(|(sk, _)| sk == *scan_key)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(0);
-            return Err(Error::IncompleteEcdhCoverage(output_idx));
-        }
-    }
-
     let shared_secrets = compute_sp_shared_secrets(secp, psbt, &aggregated_shares)?;
 
     // Track output index per scan key (for BIP 352 k parameter)
