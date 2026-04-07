@@ -26,6 +26,9 @@ pub mod signer;
 pub mod updater;
 pub mod validation;
 
+#[cfg(test)]
+mod test_helpers;
+
 pub use constructor::*;
 pub use creator::*;
 pub use extractor::*;

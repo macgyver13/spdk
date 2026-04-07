@@ -117,6 +117,7 @@ mod tests {
         creator::create_psbt,
         input_finalizer::finalize_sp_outputs,
         signer::{add_ecdh_shares_full, sign_inputs},
+        updater::{add_input_bip32_derivation, Bip32Derivation},
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid};
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
@@ -195,6 +196,8 @@ mod tests {
 
         add_inputs(&mut psbt, &inputs).unwrap();
         add_outputs(&mut psbt, &outputs).unwrap();
+        let derivation = Bip32Derivation::new([0u8; 4], vec![]);
+        add_input_bip32_derivation(&mut psbt, 0, &pubkey, &derivation).unwrap();
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();
         finalize_sp_outputs(&secp, &mut psbt).unwrap();
         sign_inputs(&secp, &mut psbt, &inputs).unwrap();

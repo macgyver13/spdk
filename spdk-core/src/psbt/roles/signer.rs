@@ -292,46 +292,18 @@ pub fn get_unsigned_inputs(psbt: &SilentPaymentPsbt) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::psbt::core::PsbtInput;
-    use crate::psbt::roles::{constructor::add_inputs, creator::create_psbt};
-    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid};
+    use crate::psbt::roles::test_helpers::make_p2wpkh_psbt;
     use secp256k1::SecretKey;
 
     #[test]
     fn test_add_ecdh_shares_full() {
         let secp = Secp256k1::new();
-        let mut psbt = create_psbt(2, 1);
-
-        let privkey1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
-        let privkey2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
         let scan_privkey = SecretKey::from_slice(&[3u8; 32]).unwrap();
         let scan_key = PublicKey::from_secret_key(&secp, &scan_privkey);
 
-        let inputs = vec![
-            PsbtInput::new(
-                OutPoint::new(Txid::all_zeros(), 0),
-                TxOut {
-                    value: Amount::from_sat(50000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey1),
-            ),
-            PsbtInput::new(
-                OutPoint::new(Txid::all_zeros(), 1),
-                TxOut {
-                    value: Amount::from_sat(30000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey2),
-            ),
-        ];
-
-        add_inputs(&mut psbt, &inputs).unwrap();
+        let (mut psbt, inputs) = make_p2wpkh_psbt(&secp, 2);
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], true).unwrap();
 
-        // Verify ECDH shares were added
         let shares0 = psbt.get_input_ecdh_shares(0);
         assert_eq!(shares0.len(), 1);
         assert_eq!(shares0[0].scan_key, scan_key);
@@ -343,44 +315,17 @@ mod tests {
     #[test]
     fn test_add_ecdh_shares_partial() {
         let secp = Secp256k1::new();
-        let mut psbt = create_psbt(2, 1);
-
-        let privkey1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
-        let privkey2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
         let scan_privkey = SecretKey::from_slice(&[3u8; 32]).unwrap();
         let scan_key = PublicKey::from_secret_key(&secp, &scan_privkey);
 
-        let inputs = vec![
-            PsbtInput::new(
-                OutPoint::new(Txid::all_zeros(), 0),
-                TxOut {
-                    value: Amount::from_sat(50000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey1),
-            ),
-            PsbtInput::new(
-                OutPoint::new(Txid::all_zeros(), 1),
-                TxOut {
-                    value: Amount::from_sat(30000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey2),
-            ),
-        ];
-
-        add_inputs(&mut psbt, &inputs).unwrap();
+        let (mut psbt, inputs) = make_p2wpkh_psbt(&secp, 2);
 
         // Only sign input 0
         add_ecdh_shares_partial(&secp, &mut psbt, &inputs, &[scan_key], &[0], false).unwrap();
 
-        // Input 0 should have shares
         let shares0 = psbt.get_input_ecdh_shares(0);
         assert_eq!(shares0.len(), 1);
 
-        // Input 1 should not have shares
         let shares1 = psbt.get_input_ecdh_shares(1);
         assert_eq!(shares1.len(), 0);
     }

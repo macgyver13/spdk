@@ -32,6 +32,7 @@ pub fn add_inputs(psbt: &mut SilentPaymentPsbt, inputs: &[PsbtInput]) -> Result<
         psbt_input.witness_utxo = Some(witness_utxo);
         psbt_input.final_script_witness = None; // Clear any existing witness
 
+        // FIXME: Is this the best place to set this?
         // For P2TR inputs, we should set the tap_internal_key if possible.
         // In the absence of separate internal key info in PsbtInput, we assume for this
         // demo/constructor that the key in the script is what we want to track.
