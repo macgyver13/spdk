@@ -113,6 +113,7 @@ mod tests {
         input_finalizer::finalize_sp_outputs,
         input_witness_finalizer::finalize_input_witnesses,
         signer::{add_ecdh_shares_full, sign_inputs},
+        updater::{add_input_bip32_derivation, Bip32Derivation},
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid};
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
@@ -206,6 +207,7 @@ mod tests {
         let privkey1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
         let privkey2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
         let pubkey1 = PublicKey::from_secret_key(&secp, &privkey1);
+        let pubkey2 = PublicKey::from_secret_key(&secp, &privkey2);
 
         let inputs = vec![
             PsbtInput::new(
@@ -237,6 +239,11 @@ mod tests {
         // Construct PSBT
         add_inputs(&mut psbt, &inputs).unwrap();
         add_outputs(&mut psbt, &outputs).unwrap();
+
+        // Register input pubkeys (updater role) so aggregate_ecdh_shares can build input_sum
+        let derivation = Bip32Derivation::new([0u8; 4], vec![]);
+        add_input_bip32_derivation(&mut psbt, 0, &pubkey1, &derivation).unwrap();
+        add_input_bip32_derivation(&mut psbt, 1, &pubkey2, &derivation).unwrap();
 
         // Add ECDH shares
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();

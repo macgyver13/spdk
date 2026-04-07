@@ -74,7 +74,10 @@ mod tests {
     use super::*;
     use crate::psbt::core::{PsbtInput, PsbtOutput};
     use crate::psbt::roles::{
-        constructor::add_outputs, creator::create_psbt, signer::add_ecdh_shares_full,
+        constructor::add_outputs,
+        creator::create_psbt,
+        signer::add_ecdh_shares_full,
+        test_helpers::make_sp_psbt,
     };
     use bitcoin::hashes::Hash;
     use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid};
@@ -85,68 +88,20 @@ mod tests {
     fn test_finalize_sp_outputs_basic() {
         let secp = Secp256k1::new();
 
-        // Create PSBT with 2 inputs and 1 silent payment output
-        let mut psbt = create_psbt(2, 1);
-
-        // Create scan and spend keys
         let scan_privkey = SecretKey::from_slice(&[10u8; 32]).unwrap();
         let scan_key = PublicKey::from_secret_key(&secp, &scan_privkey);
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
-
         let sp_address =
             SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
 
-        // Add output
-        let outputs = vec![PsbtOutput::silent_payment(
-            Amount::from_sat(50000),
-            sp_address,
-            None,
-        )];
-        add_outputs(&mut psbt, &outputs).unwrap();
+        let (mut psbt, inputs) = make_sp_psbt(&secp, 2, sp_address, 50000);
 
-        // Create inputs with private keys
-        let privkey1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
-        let privkey2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
-
-        let inputs = vec![
-            PsbtInput::new(
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 0,
-                },
-                TxOut {
-                    value: Amount::from_sat(30000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey1),
-            ),
-            PsbtInput::new(
-                OutPoint {
-                    txid: Txid::all_zeros(),
-                    vout: 1,
-                },
-                TxOut {
-                    value: Amount::from_sat(30000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey2),
-            ),
-        ];
-
-        // Add ECDH shares
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();
-
-        // Finalize inputs (compute output scripts)
         finalize_sp_outputs(&secp, &mut psbt).unwrap();
 
-        // Verify output script was added
         let script = &psbt.outputs[0].script_pubkey;
         assert!(!script.is_empty());
-
-        // P2TR scripts are 34 bytes: OP_1 + 32-byte x-only pubkey
         assert_eq!(script.len(), 34);
         assert!(script.is_p2tr());
     }
@@ -201,64 +156,20 @@ mod tests {
     fn test_tx_modifiable_flags_cleared_after_finalization() {
         let secp = Secp256k1::new();
 
-        // Create PSBT with 2 inputs and 1 silent payment output
-        let mut psbt = create_psbt(2, 1);
-
-        // Verify initial tx_modifiable_flags is non-zero
-        assert_ne!(
-            psbt.global.tx_modifiable_flags, 0x00,
-            "Initial flags should be non-zero"
-        );
-
-        // Create scan and spend keys
         let scan_privkey = SecretKey::from_slice(&[10u8; 32]).unwrap();
         let scan_key = PublicKey::from_secret_key(&secp, &scan_privkey);
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
-
         let sp_address =
             SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
 
-        // Add output
-        let outputs = vec![PsbtOutput::silent_payment(
-            Amount::from_sat(50000),
-            sp_address,
-            None,
-        )];
-        add_outputs(&mut psbt, &outputs).unwrap();
+        let (mut psbt, inputs) = make_sp_psbt(&secp, 2, sp_address, 50000);
 
-        // Create inputs with private keys
-        let privkey1 = SecretKey::from_slice(&[1u8; 32]).unwrap();
-        let privkey2 = SecretKey::from_slice(&[2u8; 32]).unwrap();
+        assert_ne!(psbt.global.tx_modifiable_flags, 0x00, "Initial flags should be non-zero");
 
-        let inputs = vec![
-            PsbtInput::new(
-                OutPoint::new(Txid::all_zeros(), 0),
-                TxOut {
-                    value: Amount::from_sat(30000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey1),
-            ),
-            PsbtInput::new(
-                OutPoint::new(Txid::all_zeros(), 1),
-                TxOut {
-                    value: Amount::from_sat(30000),
-                    script_pubkey: ScriptBuf::new(),
-                },
-                Sequence::MAX,
-                Some(privkey2),
-            ),
-        ];
-
-        // Add ECDH shares
         add_ecdh_shares_full(&secp, &mut psbt, &inputs, &[scan_key], false).unwrap();
-
-        // Finalize inputs (compute output scripts)
         finalize_sp_outputs(&secp, &mut psbt).unwrap();
 
-        // Verify tx_modifiable_flags is cleared after finalization
         assert_eq!(
             psbt.global.tx_modifiable_flags, 0x00,
             "tx_modifiable_flags should be 0x00 after finalization (BIP-370)"
