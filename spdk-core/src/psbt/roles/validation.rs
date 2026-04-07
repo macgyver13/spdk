@@ -211,7 +211,7 @@ fn validate_sighash_types(psbt: &SilentPaymentPsbt) -> Result<()> {
 /// Per BIP-375:
 /// - Each scan key in SP outputs must have corresponding ECDH share(s)
 /// - Complete coverage (all eligible inputs) required when output scripts are computed
-fn validate_ecdh_coverage(psbt: &SilentPaymentPsbt) -> Result<()> {
+pub fn validate_ecdh_coverage(psbt: &SilentPaymentPsbt) -> Result<()> {
     let num_inputs = psbt.num_inputs();
 
     // Collect all unique scan keys from SP outputs
@@ -388,7 +388,9 @@ fn validate_dleq_proofs(secp: &Secp256k1<secp256k1::All>, psbt: &SilentPaymentPs
     // Validate per-input ECDH shares
     for input_idx in 0..psbt.num_inputs() {
         let shares = psbt.get_input_ecdh_shares(input_idx);
-
+        if shares.is_empty() {
+            continue;
+        }
         for share in shares {
             if share.dleq_proof.is_none() {
                 return Err(Error::Other(format!(
