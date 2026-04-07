@@ -29,6 +29,7 @@ use super::{
     types::EcdhShareData,
     SilentPaymentPsbt,
 };
+use crate::psbt::crypto::bip352::is_input_eligible;
 use bitcoin::{OutPoint, Txid};
 use psbt_v2::{
     bitcoin::CompressedPublicKey,
@@ -270,6 +271,10 @@ impl Bip375PsbtExt for Psbt {
         let Some(input) = self.inputs.get(input_index) else {
             return Vec::new();
         };
+
+        if !is_input_eligible(input) {
+            return Vec::new();
+        }
 
         let mut shares = Vec::new();
 
