@@ -175,6 +175,55 @@ pub fn add_input_sighash_type(
     Ok(())
 }
 
+/// Register a public key's BIP32 derivation in the correct PSBT field for
+/// the input's script type.
+///
+/// Auto-detects from the input's PSBT fields and `witness_utxo.script_pubkey`:
+/// - SP input (has `PSBT_IN_SP_TWEAK`) → `PSBT_IN_SP_SPEND_BIP32_DERIVATION`
+/// - P2WPKH / P2PKH → `PSBT_IN_BIP32_DERIVATION`
+/// - P2TR → `PSBT_IN_WITNESS_UTXO`
+///
+/// **SP inputs:** `pubkey` must be the spend pubkey (the untweaked key from the
+/// wallet's SP spend derivation path), not the tweaked key that locks the output.
+/// Passing the wrong key is not validated and writes silently incorrect data.
+///
+/// Accepts plain types so callers don't need to import [`Bip32Derivation`].
+/// For P2TR key-path spending, the xonly conversion is handled internally.
+pub fn update_input_derivation(
+    psbt: &mut SilentPaymentPsbt,
+    input_index: usize,
+    pubkey: &secp256k1::PublicKey,
+    fingerprint: [u8; 4],
+    path: &[u32],
+) -> Result<()> {
+    use crate::psbt::Bip375PsbtExt;
+
+    let derivation = Bip32Derivation::new(fingerprint, path.to_vec());
+
+    if psbt.get_input_sp_tweak(input_index).is_some() {
+        return add_input_sp_spend_bip32_derivation(psbt, input_index, pubkey, &derivation);
+    }
+
+    let script = psbt
+        .inputs
+        .get(input_index)
+        .ok_or(Error::InvalidInputIndex(input_index))?
+        .witness_utxo
+        .as_ref()
+        .ok_or(Error::MissingWitnessUtxo(input_index))?
+        .script_pubkey
+        .clone();
+
+    if script.is_p2tr() {
+        let (xonly, _) = pubkey.x_only_public_key();
+        add_input_tap_bip32_derivation(psbt, input_index, &xonly, vec![], &derivation)
+    } else if script.is_p2wpkh() || script.is_p2pkh() {
+        add_input_bip32_derivation(psbt, input_index, pubkey, &derivation)
+    } else {
+        Err(Error::UnsupportedScriptType(input_index))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
