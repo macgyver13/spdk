@@ -59,6 +59,12 @@ pub enum Error {
     #[error("Invalid PSBT state: {0}")]
     InvalidPsbtState(String),
 
+    #[error("Missing witness UTXO for input {0}")]
+    MissingWitnessUtxo(usize),
+
+    #[error("Unsupported script type for input: {0}")]
+    UnsupportedScriptType(usize),
+
     #[error(
         "Cannot add standard field type {0} via generic accessor - use specific method instead"
     )]
