@@ -159,6 +159,24 @@ pub fn apply_tweak_to_privkey(spend_privkey: &SecretKey, tweak: &[u8; 32]) -> Re
     Ok(tweaked)
 }
 
+/// Apply BIP-352 label to spend public key
+///
+/// labeled_spend_key = spend_key + LabelHash(b_scan, m) * G
+pub fn apply_label_to_spend_pubkey(
+    secp: &Secp256k1<secp256k1::All>,
+    spend_key: &PublicKey,
+    scan_privkey: &SecretKey,
+    label: u32,
+) -> Result<PublicKey> {
+    use silentpayments::utils::hash::LabelHash;
+    let tweak = LabelHash::from_b_scan_and_m(*scan_privkey, label).to_scalar();
+    let tweak_key = SecretKey::from_slice(&tweak.to_be_bytes())?;
+    let tweak_point = PublicKey::from_secret_key(secp, &tweak_key);
+    spend_key
+        .combine(&tweak_point)
+        .map_err(|e| CryptoError::Other(format!("Failed to apply label: {}", e)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
