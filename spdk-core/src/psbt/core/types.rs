@@ -177,7 +177,7 @@ mod tests {
         let spend_key =
             PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&[2u8; 32]).unwrap());
 
-        let addr = SilentPaymentAddress::new(scan_key, spend_key, Network::Regtest, 0).unwrap();
+        let addr = SilentPaymentAddress::new(scan_key, spend_key, Network::Regtest, silentpayments::SpVersion::ZERO);
         let bytes: Vec<u8> = addr.to_string().into_bytes();
         let decoded = SilentPaymentAddress::try_from(String::from_utf8(bytes).unwrap()).unwrap();
 

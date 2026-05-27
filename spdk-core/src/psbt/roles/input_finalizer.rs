@@ -91,7 +91,7 @@ mod tests {
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
         let sp_address =
-            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, silentpayments::SpVersion::ZERO);
 
         let (mut psbt, inputs) = make_sp_psbt(&secp, 2, sp_address, 50000);
 
@@ -118,7 +118,7 @@ mod tests {
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
 
         let sp_address =
-            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, silentpayments::SpVersion::ZERO);
 
         // Add output
         let outputs = vec![PsbtOutput::silent_payment(
@@ -159,7 +159,7 @@ mod tests {
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
         let sp_address =
-            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, silentpayments::SpVersion::ZERO);
 
         let (mut psbt, inputs) = make_sp_psbt(&secp, 2, sp_address, 50000);
 

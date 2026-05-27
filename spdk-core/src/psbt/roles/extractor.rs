@@ -200,8 +200,7 @@ mod tests {
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
 
         let sp_address =
-            SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, 0)
-                .unwrap();
+            SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, silentpayments::SpVersion::ZERO);
 
         // Create inputs with private keys
         let privkey1 = SecretKey::from_slice(&[1u8; 32]).unwrap();

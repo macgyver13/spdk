@@ -14,6 +14,7 @@ pub fn add_inputs(psbt: &mut SilentPaymentPsbt, inputs: &[PsbtInput]) -> Result<
         )));
     }
 
+    //TODO: Move this to Updater role
     for (i, input) in inputs.iter().enumerate() {
         let psbt_input = &mut psbt.inputs[i];
 

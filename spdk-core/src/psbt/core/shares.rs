@@ -340,7 +340,7 @@ mod tests {
     ) -> SilentPaymentPsbt {
         let spend_key =
             PublicKey::from_secret_key(secp, &SecretKey::from_slice(&[20u8; 32]).unwrap());
-        let address = SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+        let address = SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, silentpayments::SpVersion::ZERO);
         let (mut psbt, _inputs) = make_sp_psbt(secp, 1, address, 50000);
         psbt.add_input_partial_ecdh_share(
             0,
@@ -421,7 +421,7 @@ mod tests {
         let spend_key =
             PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&[20u8; 32]).unwrap());
         let address =
-            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, 0).unwrap();
+            SilentPaymentAddress::new(scan_key, spend_key, SpNetwork::Regtest, silentpayments::SpVersion::ZERO);
         let (mut psbt, _inputs) = make_sp_psbt(&secp, 1, address, 50000);
 
         // Two participants with known secret keys, in aggregation order.

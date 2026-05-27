@@ -45,6 +45,8 @@ pub fn finalize_input_witnesses(psbt: &mut SilentPaymentPsbt) -> Result<()> {
 /// - MuSig2 fields: `musig2_participant_pubkeys`, `musig2_pub_nonces`, `musig2_partial_sigs`
 /// - `PSBT_IN_SP_TWEAK` — silent payment spend tweak
 /// - `PSBT_IN_SP_SPEND_BIP32_DERIVATION` — silent payment spend BIP32 derivation
+/// - `PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE` — MuSig2 partial ECDH share
+/// - `PSBT_IN_MUSIG2_PARTIAL_DLEQ` — MuSig2 partial ECDH share DLEQ proof
 pub fn clear_input_signing_fields(psbt: &mut SilentPaymentPsbt, input_idx: usize) -> Result<()> {
     {
         let input = psbt
@@ -66,6 +68,11 @@ pub fn clear_input_signing_fields(psbt: &mut SilentPaymentPsbt, input_idx: usize
     if psbt.get_input_sp_tweak(input_idx).is_some() {
         psbt.remove_input_sp_tweak(input_idx)?;
         psbt.remove_input_sp_spend_bip32_derivation(input_idx)?;
+    }
+
+    // MuSig2 partial ECDH share / DLEQ unknowns are intermediate; clear them too.
+    if !psbt.get_input_partial_ecdh_shares(input_idx).is_empty() {
+        psbt.remove_input_partial_sp_fields(input_idx)?;
     }
 
     Ok(())
@@ -113,7 +120,7 @@ fn build_final_witness(psbt: &SilentPaymentPsbt, input_idx: usize) -> Result<Wit
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::psbt::core::{PsbtInput, PsbtOutput};
+    use crate::psbt::core::{PartialEcdhShareData, PsbtInput, PsbtOutput};
     use crate::psbt::crypto::pubkey_to_p2wpkh_script;
     use crate::psbt::roles::{
         constructor::{add_inputs, add_outputs},
@@ -174,8 +181,7 @@ mod tests {
         let spend_privkey = SecretKey::from_slice(&[20u8; 32]).unwrap();
         let spend_key = PublicKey::from_secret_key(&secp, &spend_privkey);
         let sp_address =
-            SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, 0)
-                .unwrap();
+            SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, silentpayments::SpVersion::ZERO);
 
         let privkey = SecretKey::from_slice(&[1u8; 32]).unwrap();
         let pubkey = PublicKey::from_secret_key(&secp, &privkey);
@@ -241,6 +247,24 @@ mod tests {
         add_outputs(&mut psbt, &outputs).unwrap();
         sign_inputs(&secp, &mut psbt, &inputs).unwrap();
 
+        // Add a MuSig2 partial ECDH share / DLEQ pair so finalization clears it.
+        let scan_key =
+            PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&[2u8; 32]).unwrap());
+        let contributor_pk =
+            PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&[3u8; 32]).unwrap());
+        let share = PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&[4u8; 32]).unwrap());
+        psbt.add_input_partial_ecdh_share(
+            0,
+            &PartialEcdhShareData {
+                scan_key,
+                contributor_pk,
+                share,
+                dleq_proof: psbt_v2::v2::dleq::DleqProof([0u8; 64]),
+            },
+        )
+        .unwrap();
+        assert!(!psbt.get_input_partial_ecdh_shares(0).is_empty());
+
         finalize_input_witnesses(&mut psbt).unwrap();
 
         // Verify all intermediate signing fields are cleared
@@ -253,6 +277,7 @@ mod tests {
         assert!(psbt.inputs[0].musig2_pub_nonces.is_empty());
         assert!(psbt.inputs[0].musig2_partial_sigs.is_empty());
         assert!(psbt.get_input_sp_tweak(0).is_none());
+        assert!(psbt.get_input_partial_ecdh_shares(0).is_empty());
     }
 
     #[test]

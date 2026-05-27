@@ -361,6 +361,13 @@ pub trait Bip375PsbtExt {
         input_index: usize,
         partial: &PartialEcdhShareData,
     ) -> Result<()>;
+
+    /// Remove all partial ECDH share and DLEQ entries for an input.
+    ///
+    /// Removes every PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE and PSBT_IN_MUSIG2_PARTIAL_DLEQ
+    /// entry (one pair per contributor). Typically called after finalization to clear
+    /// intermediate signing data.
+    fn remove_input_partial_sp_fields(&mut self, input_index: usize) -> Result<()>;
 }
 
 impl Bip375PsbtExt for Psbt {
@@ -921,6 +928,29 @@ impl Bip375PsbtExt for Psbt {
 
         Ok(())
     }
+
+    fn remove_input_partial_sp_fields(&mut self, input_index: usize) -> Result<()> {
+        let input = self
+            .inputs
+            .get_mut(input_index)
+            .ok_or(Error::InvalidInputIndex(input_index))?;
+
+        let keys_to_remove: Vec<Key> = input
+            .unknowns
+            .keys()
+            .filter(|k| {
+                k.type_value == PSBT_IN_MUSIG2_PARTIAL_ECDH_SHARE
+                    || k.type_value == PSBT_IN_MUSIG2_PARTIAL_DLEQ
+            })
+            .cloned()
+            .collect();
+
+        for key in keys_to_remove {
+            input.unknowns.remove(&key);
+        }
+
+        Ok(())
+    }
 }
 
 // Private helper functions for DLEQ proof management
@@ -1199,8 +1229,7 @@ mod tests {
             PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&[2u8; 32]).unwrap());
 
         let address =
-            SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, 0)
-                .unwrap();
+            SilentPaymentAddress::new(scan_key, spend_key, silentpayments::Network::Regtest, silentpayments::SpVersion::ZERO);
 
         // Set address
         psbt.set_output_sp_info(0, &address).unwrap();

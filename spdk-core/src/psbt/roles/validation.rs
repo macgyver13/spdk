@@ -527,7 +527,7 @@ mod tests {
         let spend_pub = PublicKey::from_secret_key(&secp, &spend_priv);
 
         let sp_addr =
-            SilentPaymentAddress::new(scan_pub, spend_pub, SpNetwork::Regtest, 0).unwrap();
+            SilentPaymentAddress::new(scan_pub, spend_pub, SpNetwork::Regtest, silentpayments::SpVersion::ZERO);
 
         // Add SP output
         let outputs = vec![PsbtOutput::silent_payment(
