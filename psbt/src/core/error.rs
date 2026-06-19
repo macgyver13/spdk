@@ -125,8 +125,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<psbt_v2::v2::DetermineLockTimeError> for Error {
-    fn from(value: psbt_v2::v2::DetermineLockTimeError) -> Self {
+impl From<psbt_v2::DetermineLockTimeError> for Error {
+    fn from(value: psbt_v2::DetermineLockTimeError) -> Self {
         Self::InvalidPsbtState(value.to_string())
     }
 }

@@ -1,7 +1,6 @@
 use bitcoin::OutPoint;
-use psbt_v2::v2::{
-    Constructor, Creator, Input, InputsOnlyModifiable, Output, OutputsOnlyModifiable,
-};
+use psbt_v2::psbt::{Constructor, Creator, InputsOnlyModifiable, OutputsOnlyModifiable};
+use psbt_v2::{Input, Output};
 use rand::seq::SliceRandom;
 
 use crate::core::{Error, Psbt, Result};
@@ -29,7 +28,9 @@ impl ConstructorPsbtExt for Psbt {
 
         // add outputs
         for output in outputs {
-            constructor = constructor.output(output);
+            constructor = constructor
+                .output(output)
+                .map_err(|e| Error::Other(e.to_string()))?;
         }
 
         Ok(constructor.psbt()?)
@@ -56,7 +57,9 @@ impl ConstructorPsbtExt for Psbt {
 
         // add outputs
         for output in outputs {
-            constructor = constructor.output(output);
+            constructor = constructor
+                .output(output)
+                .map_err(|e| Error::Other(e.to_string()))?;
         }
 
         Ok(constructor.psbt()?)

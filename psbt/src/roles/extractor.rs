@@ -1,6 +1,6 @@
 use crate::core::{Error, Psbt, Result};
 use bitcoin::Transaction;
-use psbt_v2::v2::Extractor;
+use psbt_v2::Extractor;
 
 pub trait ExtractorPsbtExt {
     fn extract_tx(self) -> Result<Transaction>;

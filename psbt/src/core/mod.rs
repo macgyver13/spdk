@@ -12,6 +12,7 @@ pub mod error;
 pub mod utils;
 
 pub use error::{Error, Result};
-pub use psbt_v2::v2::{Global, Input, Output, Psbt};
+pub use psbt_v2::psbt::Psbt;
+pub use psbt_v2::{Global, Input, Output};
 
 pub type PsbtKey = psbt_v2::raw::Key;

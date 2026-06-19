@@ -262,7 +262,7 @@ mod tests {
         let aux_rand = [5u8; 32];
 
         let partial =
-            PartialSenderEcdhShare::new(&secp, recipient_scan_key, 0, normalized, &aux_rand)
+            PartialSenderEcdhShare::new(&secp, recipient_scan_key, 0, &normalized, &aux_rand)
                 .unwrap();
 
         partial.verify_dleq_proof(&secp, &input_pubkey).unwrap();

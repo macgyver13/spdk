@@ -16,7 +16,7 @@ use psbt::roles::signer::extract_eligible_input_pubkey;
 use psbt::roles::updater::Bip375UpdaterExt;
 use psbt::roles::{ConstructorPsbtExt, SignerPsbtExt};
 use psbt::Psbt;
-use psbt_v2::v2::{Input, Output};
+use psbt_v2::{Input, Output};
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use silentpayments::utils::NUMS_H;
 
@@ -54,7 +54,7 @@ fn sp_output(scan: &PublicKey, spend: &PublicKey) -> Output {
         value: Amount::from_sat(10_000),
         script_pubkey: ScriptBuf::new(),
     });
-    output.sp_v0_info = Some(sp_info);
+    output.sp_v0_info = Some(sp_info.into());
     output
 }
 

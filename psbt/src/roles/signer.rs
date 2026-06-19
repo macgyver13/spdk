@@ -142,7 +142,7 @@ impl SignerPsbtExt for Psbt {
                     secp,
                     scan_key.0,
                     vin,
-                    normalized.clone(),
+                    &normalized.clone(),
                     &aux_rand,
                 )
                 .map_err(|e| Error::Other(e.to_string()))?;
@@ -280,8 +280,8 @@ impl SignerPsbtExt for Psbt {
             if let Some(sp_info) = output.sp_v0_info.as_ref() {
                 // Find the matching pubkey
                 let mut key = [SpVersion::ZERO.into(); SILENT_PAYMENT_ADDRESS_BYTE_LEN];
-                key[1..34].copy_from_slice(&sp_info.as_slice()[..33]);
-                key[34..].copy_from_slice(&sp_info.as_slice()[33..]);
+                key[1..34].copy_from_slice(&sp_info.as_bytes()[..33]);
+                key[34..].copy_from_slice(&sp_info.as_bytes()[33..]);
                 if let Some(xonly_keys) = xonly_map.get_mut(&key) {
                     if xonly_keys.is_empty() {
                         return Err(Error::Other(format!("Not enough keys")));
@@ -349,20 +349,13 @@ fn collect_scan_keys(
 fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>>> {
     let mut res: Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>> =
         Vec::with_capacity(psbt.global.output_count);
-    for (i, output) in psbt.outputs.iter().enumerate() {
+    for output in psbt.outputs.iter() {
         let Some(sp_info) = output.sp_v0_info.as_ref() else {
             res.push(None);
             continue;
         };
-        if sp_info.len() != 66 {
-            return Err(Error::InvalidFieldData(format!(
-                "Output {} has invalid SP info length: {}",
-                i,
-                sp_info.len()
-            )));
-        }
         let mut sp_address_bytes = [0u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN];
-        sp_address_bytes[1..].copy_from_slice(&sp_info.as_slice());
+        sp_address_bytes[1..].copy_from_slice(sp_info.as_bytes());
         res.push(Some(sp_address_bytes));
     }
     Ok(res)
