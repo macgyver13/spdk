@@ -349,7 +349,14 @@ fn collect_scan_keys(
 fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>>> {
     let mut res: Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>> =
         Vec::with_capacity(psbt.global.output_count);
-    for output in psbt.outputs.iter() {
+    let mut sorted_outputs: Vec<_> = psbt.outputs.iter().enumerate().collect();
+    sorted_outputs.sort_by(|(index_a, output_a), (index_b, output_b)| {
+        output_a
+            .sp_v0_info
+            .cmp(&output_b.sp_v0_info)
+            .then(index_a.cmp(index_b))
+    });
+    for (_, output) in sorted_outputs {
         let Some(sp_info) = output.sp_v0_info.as_ref() else {
             res.push(None);
             continue;
