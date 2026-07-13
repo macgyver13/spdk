@@ -20,6 +20,7 @@
 pub mod constructor;
 pub mod extractor;
 pub mod input_witness_finalizer;
+pub mod musig2_signer;
 pub mod signer;
 pub mod updater;
 

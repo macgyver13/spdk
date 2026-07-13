@@ -7,6 +7,7 @@
 //! - `roles`: PSBT role implementations (creator, constructor, updater, signer, etc.)
 
 pub mod core;
+pub mod musig2;
 pub mod roles;
 
 // Re-export commonly used types from core
