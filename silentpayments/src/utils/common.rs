@@ -327,6 +327,31 @@ impl TransactionSharedSecret {
         })
     }
 
+    /// Create a shared secret from an already-aggregated ECDH share.
+    ///
+    /// The caller is responsible for verifying contributor DLEQ proofs and
+    /// combining shares (e.g. BIP-327 MuSig2 weighting) before calling this.
+    /// Only the BIP-352 `input_hash` multiply is applied here, over the same
+    /// eligible-input set (`min_outpoint || A_sum`) a receiver would use.
+    #[cfg(all(
+        feature = "sending",
+        any(feature = "dleq-standalone", feature = "dleq-native")
+    ))]
+    pub fn new_from_aggregate_share<C: secp256k1::Verification>(
+        secp: &Secp256k1<C>,
+        aggregate_share: PublicKey,
+        recipient_scan_key: PublicKey,
+        inputs: &TransactionInputs,
+    ) -> Result<Self> {
+        let input_hash =
+            calculate_input_hash(inputs.min_outpoint(), inputs.eligible_pubkeys_sum()?);
+        let tweaked_share = aggregate_share.mul_tweak(secp, &input_hash)?;
+        Ok(Self {
+            ecdh_shared_secret: tweaked_share,
+            recipient_scan_key,
+        })
+    }
+
     /// Calculate the shared secret of a transaction as a receiver.
     ///
     /// # Arguments

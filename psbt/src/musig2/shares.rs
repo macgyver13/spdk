@@ -7,28 +7,8 @@ use anyhow::{anyhow, Result};
 use secp256k1::{PublicKey, Secp256k1};
 use std::collections::{HashMap, HashSet};
 
-use super::finalizer::input_hash_bytes;
 use super::keyagg;
 use crate::Psbt;
-
-/// Aggregated ECDH share and input pubkey sum for a single scan key.
-#[derive(Debug, Clone)]
-pub struct AggregatedShare {
-    pub aggregated_share: PublicKey,
-    pub input_sum: PublicKey,
-}
-
-/// Collection of aggregated shares keyed by scan key.
-#[derive(Debug, Clone)]
-pub struct AggregatedShares {
-    shares: HashMap<PublicKey, AggregatedShare>,
-}
-
-impl AggregatedShares {
-    pub fn iter(&self) -> impl Iterator<Item = (&PublicKey, &AggregatedShare)> {
-        self.shares.iter()
-    }
-}
 
 /// BIP-352 input public key, or `None` for an ineligible input.
 fn input_pubkey(input: &psbt_v2::Input) -> Result<Option<PublicKey>> {
@@ -36,15 +16,16 @@ fn input_pubkey(input: &psbt_v2::Input) -> Result<Option<PublicKey>> {
         .map_err(|e| anyhow!("extract input pubkey: {e}"))
 }
 
-/// Collect ECDH shares and input-pubkey sums from a PSBT, grouped by scan key.
+/// Aggregate MuSig2 ECDH shares from a PSBT into one share per scan key.
 ///
 /// Per-input participant ECDH shares are synthesized into a single per-input
-/// share first (BIP-327 weighting), then summed across inputs along with the
-/// eligible input pubkeys.
+/// share first (BIP-327 weighting), then summed across eligible inputs. The
+/// BIP-352 `input_hash` multiply and A_sum computation happen later, inside
+/// [`silentpayments::TransactionSharedSecret::new_from_aggregate_share`].
 pub fn aggregate_ecdh_shares(
     psbt: &Psbt,
     secp: &Secp256k1<secp256k1::All>,
-) -> Result<AggregatedShares> {
+) -> Result<HashMap<PublicKey, PublicKey>> {
     if psbt.inputs.is_empty() {
         return Err(anyhow!("cannot aggregate ECDH shares: no inputs"));
     }
@@ -68,12 +49,11 @@ pub fn aggregate_ecdh_shares(
         // BIP-375 global/per-input shares remain the responsibility of SPDK's
         // `SignerPsbtExt::compute_sp_outputs` and are intentionally not copied here.
         let mut agg_share: Option<PublicKey> = None;
-        let mut input_sum: Option<PublicKey> = None;
 
         for (input_idx, input) in psbt.inputs.iter().enumerate() {
-            let Some(pubkey) = input_pubkey(input)? else {
+            if input_pubkey(input)?.is_none() {
                 continue;
-            };
+            }
             let share = synthesized
                 .get(&input_idx)
                 .and_then(|m| m.get(&scan_key))
@@ -87,53 +67,13 @@ pub fn aggregate_ecdh_shares(
                 None => share,
                 Some(existing) => combine_keys(&existing, &share)?,
             });
-            input_sum = Some(match input_sum {
-                None => pubkey,
-                Some(existing) => combine_keys(&existing, &pubkey)?,
-            });
         }
 
         let aggregated_share = agg_share.ok_or_else(|| anyhow!("no eligible MuSig2 inputs"))?;
-        let input_sum = input_sum.ok_or_else(|| anyhow!("no eligible input public keys"))?;
-        result.insert(
-            scan_key,
-            AggregatedShare {
-                aggregated_share,
-                input_sum,
-            },
-        );
+        result.insert(scan_key, aggregated_share);
     }
 
-    Ok(AggregatedShares { shares: result })
-}
-
-/// Compute BIP-352 shared secrets: `shared_secret = aggregated_share * input_hash`
-/// where `input_hash = hash_BIP0352/Inputs(smallest_outpoint || input_sum)`.
-pub fn compute_sp_shared_secrets(
-    secp: &Secp256k1<secp256k1::All>,
-    psbt: &Psbt,
-    aggregated_shares: &AggregatedShares,
-) -> Result<HashMap<PublicKey, PublicKey>> {
-    let smallest_outpoint: [u8; 36] = psbt
-        .inputs
-        .iter()
-        .map(|input| input.outpoint_bytes())
-        .min()
-        .ok_or_else(|| anyhow!("no outpoints"))?;
-
-    let mut shared_secrets = HashMap::new();
-    for (scan_key, share) in aggregated_shares.iter() {
-        let hash_bytes = input_hash_bytes(&smallest_outpoint, &share.input_sum);
-        let input_hash = secp256k1::Scalar::from_be_bytes(hash_bytes)
-            .map_err(|_| anyhow!("input hash is invalid scalar"))?;
-        let shared_secret = share
-            .aggregated_share
-            .mul_tweak(secp, &input_hash)
-            .map_err(|e| anyhow!("failed to multiply ECDH share by input_hash: {e}"))?;
-        shared_secrets.insert(*scan_key, shared_secret);
-    }
-
-    Ok(shared_secrets)
+    Ok(result)
 }
 
 // ===== helpers =====
@@ -208,13 +148,22 @@ fn synthesize_partial_ecdh_shares(
                         "incomplete or unknown MuSig2 contributors on input {input_idx}"
                     ));
                 }
+                // A missing aggregate origin means the aggregate key was built by
+                // deriving each participant first (BIP-390 ranged participants) --
+                // see rust-psbt's `musig2_agg_path` doc comment. It must not be
+                // defaulted to [0, 0], since that would apply BIP-328 tweaks to a
+                // key that was never derived that way.
                 let path = input.musig2_agg_path();
+                let mode = match path.as_deref() {
+                    Some(path) => keyagg::AggregationMode::AggregateThenDerive { path },
+                    None => keyagg::AggregationMode::DeriveThenAggregate,
+                };
                 let contributions: Vec<(PublicKey, PublicKey)> =
                     entries.iter().map(|(c, s, _)| (*c, *s)).collect();
                 keyagg::aggregate_partial_ecdh_shares(
                     secp,
                     participants,
-                    &path,
+                    mode,
                     &scan_key,
                     &contributions,
                 )?
