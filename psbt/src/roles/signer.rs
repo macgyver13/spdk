@@ -9,12 +9,13 @@
 
 use std::collections::HashMap;
 
-use crate::core::utils::{to_psbt_dleq, to_rust_dleq};
+use crate::core::utils::{to_psbt_dleq, to_rust_dleq, to_sp_address_bytes};
 use crate::core::{Error, Input, Psbt, Result};
 use crate::roles::Bip375UpdaterExt;
 use bitcoin::key::TweakedPublicKey;
 use bitcoin::CompressedPublicKey;
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
+use psbt_v2::SpV0Info;
 use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey};
 use silentpayments::sending::generate_recipient_pubkeys;
 use silentpayments::utils::receiving::is_eligible;
@@ -23,7 +24,6 @@ use silentpayments::utils::sending::{
 };
 use silentpayments::utils::OutPoint;
 use silentpayments::utils::NUMS_H;
-use silentpayments::SpVersion;
 use silentpayments::{NonEmptyArray, TransactionSharedSecret};
 use silentpayments::{TransactionInputs, SILENT_PAYMENT_ADDRESS_BYTE_LEN};
 
@@ -247,8 +247,9 @@ impl SignerPsbtExt for Psbt {
         let res_map = generate_recipient_pubkeys(
             secp,
             sp_addresses_bytes
-                .into_iter()
-                .filter_map(|x| x)
+                .iter()
+                .flatten()
+                .map(to_sp_address_bytes)
                 .collect::<Vec<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>>()
                 .as_slice(),
             &scan_key_to_shared_secret,
@@ -264,9 +265,7 @@ impl SignerPsbtExt for Psbt {
         for output in update_outputs.iter_mut() {
             if let Some(sp_info) = output.sp_v0_info.as_ref() {
                 // Find the matching pubkey
-                let mut key = [SpVersion::ZERO.into(); SILENT_PAYMENT_ADDRESS_BYTE_LEN];
-                key[1..34].copy_from_slice(&sp_info.as_bytes()[..33]);
-                key[34..].copy_from_slice(&sp_info.as_bytes()[33..]);
+                let key = to_sp_address_bytes(sp_info);
                 if let Some(xonly_keys) = xonly_map.get_mut(&key) {
                     if xonly_keys.is_empty() {
                         return Err(Error::Other(format!("Not enough keys")));
@@ -316,34 +315,27 @@ impl SignerPsbtExt for Psbt {
     }
 }
 
-fn collect_scan_keys(
-    sp_v0_info: &[Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>],
-) -> Result<Vec<CompressedPublicKey>> {
+fn collect_scan_keys(sp_v0_info: &[Option<SpV0Info>]) -> Result<Vec<CompressedPublicKey>> {
     sp_v0_info
         .iter()
-        .filter_map(|x| {
-            let Some(x) = x else {
-                return None;
-            };
-            Some(CompressedPublicKey::from_slice(&x[1..34]).map_err(|e| Error::Other(e.to_string())))
-        })
+        .flatten()
+        .map(|info| info.scan_key().map_err(|e| Error::Other(e.to_string())))
         .collect()
 }
 
 /// Collect the SP recipient info for every PSBT output, returned in sorted order rather than
 /// in original output order.
 ///
-/// Outputs are sorted by their raw `sp_v0_info` bytes (33-byte scan key || 33-byte spend key),
-/// ties broken by original output index. Sorting the concatenation groups outputs by scan key
-/// and orders each group lexicographically by spend key, which is the ordering BIP-375
-/// ("Computing the Output Scripts") requires when assigning the `k` value to codes that share
-/// a scan key.
+/// Outputs are sorted by `SpV0Info`, whose `Ord` is lexicographic over the raw field bytes
+/// (33-byte scan key || 33-byte spend key), ties broken by original output index. That ordering
+/// groups outputs by scan key and orders each group lexicographically by spend key, which is the
+/// ordering BIP-375 ("Computing the Output Scripts") requires when assigning the `k` value to
+/// codes that share a scan key.
 ///
 /// Non-SP outputs yield `None`, and since `None` sorts before `Some` they are collected first.
 /// Callers must not assume `res[i]` corresponds to `psbt.outputs[i]`.
-fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>>> {
-    let mut res: Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>> =
-        Vec::with_capacity(psbt.global.output_count);
+fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<SpV0Info>>> {
+    let mut res: Vec<Option<SpV0Info>> = Vec::with_capacity(psbt.global.output_count);
     let mut sorted_outputs: Vec<_> = psbt.outputs.iter().enumerate().collect();
     sorted_outputs.sort_by(|(index_a, output_a), (index_b, output_b)| {
         output_a
@@ -352,13 +344,7 @@ fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<[u8; SILENT_PAYMENT_ADDR
             .then(index_a.cmp(index_b))
     });
     for (_, output) in sorted_outputs {
-        let Some(sp_info) = output.sp_v0_info.as_ref() else {
-            res.push(None);
-            continue;
-        };
-        let mut sp_address_bytes = [0u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN];
-        sp_address_bytes[1..].copy_from_slice(sp_info.as_bytes());
-        res.push(Some(sp_address_bytes));
+        res.push(output.sp_v0_info);
     }
     Ok(res)
 }

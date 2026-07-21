@@ -39,3 +39,6 @@ sha2 = "0.10"
 repository = "https://github.com/cygnet3/spdk"
 authors = ["cygnet <cygnet3@proton.me>"]
 license = "MIT"
+
+[patch."https://gitea.bitcoin.ninja/macgyver/rust-psbt.git"]
+psbt-v2 = { path = "/Users/macgyver/src/rust-psbt" }

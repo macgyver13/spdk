@@ -11,12 +11,14 @@
 
 use bitcoin::bip32::{DerivationPath, Fingerprint};
 use bitcoin::hashes::Hash;
-use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{
+    Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, TxOut, Txid, XOnlyPublicKey,
+};
 use psbt::roles::signer::extract_eligible_input_pubkey;
 use psbt::roles::updater::Bip375UpdaterExt;
 use psbt::roles::{ConstructorPsbtExt, SignerPsbtExt};
 use psbt::Psbt;
-use psbt_v2::{Input, Output};
+use psbt_v2::{Input, Output, SpV0Info};
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use silentpayments::utils::NUMS_H;
 
@@ -44,17 +46,17 @@ fn p2tr_script(secp: &Secp256k1<secp256k1::All>, secret: &SecretKey) -> ScriptBu
     ScriptBuf::new_p2tr(secp, xonly, None)
 }
 
-/// Build an `Output` with `sp_v0_info` set to `scan_key(33) | spend_key(33)`.
-/// `script_pubkey` is left empty — `set_sp_scriptpubkey` will fill it.
+/// Build an `Output` with `sp_v0_info` set to the recipient's scan and spend keys.
+/// `script_pubkey` is left empty, `set_sp_scriptpubkey` will fill it.
 fn sp_output(scan: &PublicKey, spend: &PublicKey) -> Output {
-    let mut sp_info = [0u8; 66];
-    sp_info[..33].copy_from_slice(&scan.serialize());
-    sp_info[33..].copy_from_slice(&spend.serialize());
     let mut output = Output::new(TxOut {
         value: Amount::from_sat(10_000),
         script_pubkey: ScriptBuf::new(),
     });
-    output.sp_v0_info = Some(sp_info.into());
+    output.sp_v0_info = Some(SpV0Info::new(
+        CompressedPublicKey(*scan),
+        CompressedPublicKey(*spend),
+    ));
     output
 }
 
