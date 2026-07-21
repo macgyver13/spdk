@@ -1,87 +1,87 @@
 //! MuSig2-aware silent-payment output finalization.
 //!
-//! SPDK already implements ordinary BIP-352 output generation, but its public
-//! API cannot construct a `TransactionSharedSecret` from a verified, weighted
-//! MuSig2 aggregate share. The small hash/output bridge below is retained until
-//! that constructor is available upstream.
+//! The MuSig2 ECDH share is a BIP-327 weighted aggregate of participant shares
+//! (see [`super::shares::aggregate_ecdh_shares`]). Once aggregated it is an
+//! ordinary `secp256k1::PublicKey`, so the BIP-352 output derivation reuses the
+//! same `silentpayments` public API as the single-signer path in
+//! [`crate::roles::signer`]: [`TransactionSharedSecret::new_from_aggregate_share`]
+//! applies the `input_hash`, and [`generate_recipient_pubkeys`] applies the
+//! per-output `BIP0352/SharedSecret` tweak.
 
 use anyhow::{anyhow, Result};
-use bitcoin::hashes::{sha256, Hash, HashEngine};
 use bitcoin::key::TweakedPublicKey;
 use bitcoin::ScriptBuf;
-use crate::Psbt;
-use secp256k1::{PublicKey, Scalar, Secp256k1, SecretKey};
+use secp256k1::{PublicKey, Secp256k1};
+use silentpayments::sending::generate_recipient_pubkeys;
+use silentpayments::utils::OutPoint;
+use silentpayments::{TransactionInputs, TransactionSharedSecret, SILENT_PAYMENT_ADDRESS_BYTE_LEN};
 use std::collections::HashMap;
 
-use super::shares::{aggregate_ecdh_shares, compute_sp_shared_secrets};
-
-fn tagged(tag: &[u8], parts: &[&[u8]]) -> [u8; 32] {
-    let tag_hash = sha256::Hash::hash(tag);
-    let mut eng = sha256::Hash::engine();
-    eng.input(tag_hash.as_ref());
-    eng.input(tag_hash.as_ref());
-    for part in parts {
-        eng.input(part);
-    }
-    sha256::Hash::from_engine(eng).to_byte_array()
-}
-
-/// FIXME: Temporary bridge for `hash_BIP0352/Inputs(smallest_outpoint || A_sum)`.
-pub fn input_hash_bytes(smallest_outpoint: &[u8; 36], a_sum: &PublicKey) -> [u8; 32] {
-    tagged(b"BIP0352/Inputs", &[smallest_outpoint, &a_sum.serialize()])
-}
-
-/// FIXME
-fn shared_secret_tweak(ecdh_shared_secret: &PublicKey, k: u32) -> [u8; 32] {
-    tagged(
-        b"BIP0352/SharedSecret",
-        &[&ecdh_shared_secret.serialize(), &k.to_be_bytes()],
-    )
-}
-
-/// FIXME
-fn tweaked_output_key_to_p2tr_script(tweaked_output_key: &PublicKey) -> ScriptBuf {
-    let (xonly, _) = tweaked_output_key.x_only_public_key();
-    ScriptBuf::new_p2tr_tweaked(TweakedPublicKey::dangerous_assume_tweaked(xonly))
-}
-
-/// Temporary bridge for deriving a BIP-352 output from a weighted MuSig2 share.
-pub fn derive_silent_payment_output_pubkey(
-    secp: &Secp256k1<secp256k1::All>,
-    spend_key: &PublicKey,
-    ecdh_secret: &[u8; 33],
-    k: u32,
-) -> Result<PublicKey> {
-    let ecdh_secret_pubkey = PublicKey::from_slice(ecdh_secret)?;
-    let tweak = Scalar::from_be_bytes(shared_secret_tweak(&ecdh_secret_pubkey, k))
-        .map_err(|_| anyhow!("shared secret hash is invalid scalar"))?;
-    let tweak_key = SecretKey::from_slice(&tweak.to_be_bytes())?;
-    let tweak_point = PublicKey::from_secret_key(secp, &tweak_key);
-    spend_key
-        .combine(&tweak_point)
-        .map_err(|e| anyhow!("failed to derive output pubkey: {e}"))
-}
+use super::shares::aggregate_ecdh_shares;
+use crate::roles::signer::extract_eligible_input_pubkey;
+use crate::Psbt;
 
 /// Verify and aggregate MuSig2 ECDH contributions, then set every SP output.
 pub fn finalize_sp_outputs(secp: &Secp256k1<secp256k1::All>, psbt: &mut Psbt) -> Result<()> {
     let aggregated = aggregate_ecdh_shares(psbt, secp)?;
-    let shared_secrets = compute_sp_shared_secrets(secp, psbt, &aggregated)?;
-    let mut scan_key_output_indices: HashMap<PublicKey, u32> = HashMap::new();
+
+    // Build the eligible-input set once; the shared-secret constructor uses it to
+    // compute `input_hash = hash_BIP0352/Inputs(min_outpoint || A_sum)`.
+    let mut transaction_inputs = TransactionInputs::with_capacity(psbt.inputs.len());
+    for input in psbt.inputs.iter() {
+        let outpoint =
+            OutPoint::from_txid_and_vout(input.previous_txid.to_string(), input.spent_output_index)
+                .map_err(|e| anyhow!("build outpoint: {e}"))?;
+        let spk = &input
+            .funding_utxo()
+            .map_err(|e| anyhow!("funding utxo: {e}"))?
+            .script_pubkey;
+        let pubkey = extract_eligible_input_pubkey(input).map_err(|e| anyhow!("input pubkey: {e}"))?;
+        transaction_inputs.push(outpoint, spk.to_bytes(), pubkey);
+    }
+
+    let mut shared_secrets: HashMap<PublicKey, TransactionSharedSecret> =
+        HashMap::with_capacity(aggregated.len());
+    for (scan_key, aggregate_share) in aggregated {
+        let shared_secret = TransactionSharedSecret::new_from_aggregate_share(
+            secp,
+            aggregate_share,
+            scan_key,
+            &transaction_inputs,
+        )
+        .map_err(|e| anyhow!("build shared secret: {e}"))?;
+        shared_secrets.insert(scan_key, shared_secret);
+    }
+
+    // Collect recipient addresses in output order so `generate_recipient_pubkeys`
+    // assigns the per-scan-key output counter `n` the same way it is consumed below.
+    let mut recipients: Vec<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]> = Vec::new();
+    for output in psbt.outputs.iter() {
+        if let Some((scan_key, spend_key)) = output.sp_info()? {
+            let mut address = [0u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN];
+            address[1..34].copy_from_slice(&scan_key.serialize());
+            address[34..].copy_from_slice(&spend_key.serialize());
+            recipients.push(address);
+        }
+    }
+
+    let mut output_keys = generate_recipient_pubkeys(secp, &recipients, &shared_secrets)
+        .map_err(|e| anyhow!("generate recipient pubkeys: {e}"))?;
 
     for output_idx in 0..psbt.outputs.len() {
         let Some((scan_key, spend_key)) = psbt.outputs[output_idx].sp_info()? else {
             continue;
         };
-        let shared_secret = shared_secrets
-            .get(&scan_key)
-            .ok_or_else(|| anyhow!("no shared secret for output {output_idx}"))?;
-        let k = *scan_key_output_indices.get(&scan_key).unwrap_or(&0);
-        let output_pubkey =
-            derive_silent_payment_output_pubkey(secp, &spend_key, &shared_secret.serialize(), k)?;
-
+        let mut address = [0u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN];
+        address[1..34].copy_from_slice(&scan_key.serialize());
+        address[34..].copy_from_slice(&spend_key.serialize());
+        let xonly = output_keys
+            .get_mut(&address)
+            .filter(|keys| !keys.is_empty())
+            .map(|keys| keys.remove(0))
+            .ok_or_else(|| anyhow!("no derived output key for output {output_idx}"))?;
         psbt.outputs[output_idx].script_pubkey =
-            tweaked_output_key_to_p2tr_script(&output_pubkey);
-        scan_key_output_indices.insert(scan_key, k + 1);
+            ScriptBuf::new_p2tr_tweaked(TweakedPublicKey::dangerous_assume_tweaked(xonly));
     }
 
     psbt.global.tx_modifiable_flags = 0;
