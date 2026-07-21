@@ -30,7 +30,7 @@ reqwest = { version = "0.12.4", features = [
   "gzip",
 ], default-features = false }
 musig2 = { version = "0.3.1", features = ["secp256k1"] }
-psbt-v2 = { git = "https://gitea.bitcoin.ninja/macgyver/rust-psbt.git", branch = "musig2-working", features = ["miniscript", "musig2", "silent-payments"] }
+psbt-v2 = { git = "https://gitea.bitcoin.ninja/macgyver/rust-psbt.git", rev = "917cb032337f77ef2e98f80b3552f3af7d0486ca", features = ["miniscript", "musig2", "silent-payments"] }
 rust-dleq = { git = "https://github.com/macgyver13/rust-dleq.git", branch = "master", default-features = false }
 rand = { version = "0.8", features = ["std"] }
 secp256k1 = { version = "0.29.0" }
@@ -41,5 +41,3 @@ repository = "https://github.com/cygnet3/spdk"
 authors = ["cygnet <cygnet3@proton.me>"]
 license = "MIT"
 
-[patch."https://gitea.bitcoin.ninja/macgyver/rust-psbt.git"]
-psbt-v2 = { path = "/Users/macgyver/src/rust-psbt" }
