@@ -330,7 +330,17 @@ fn collect_scan_keys(
         .collect()
 }
 
-/// Collect the recipient keys from the SP outputs of the PSBT and preserve the index (put None if output is not SP).
+/// Collect the SP recipient info for every PSBT output, returned in sorted order rather than
+/// in original output order.
+///
+/// Outputs are sorted by their raw `sp_v0_info` bytes (33-byte scan key || 33-byte spend key),
+/// ties broken by original output index. Sorting the concatenation groups outputs by scan key
+/// and orders each group lexicographically by spend key, which is the ordering BIP-375
+/// ("Computing the Output Scripts") requires when assigning the `k` value to codes that share
+/// a scan key.
+///
+/// Non-SP outputs yield `None`, and since `None` sorts before `Some` they are collected first.
+/// Callers must not assume `res[i]` corresponds to `psbt.outputs[i]`.
 fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>>> {
     let mut res: Vec<Option<[u8; SILENT_PAYMENT_ADDRESS_BYTE_LEN]>> =
         Vec::with_capacity(psbt.global.output_count);
