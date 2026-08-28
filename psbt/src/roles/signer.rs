@@ -356,8 +356,12 @@ fn collect_sp_v0_keys(psbt: &Psbt) -> Result<Vec<Option<[u8; SILENT_PAYMENT_ADDR
 /// Extract the BIP-352 input public key from PSBT fields populated by the Updater.
 ///
 /// Returns `Some(pubkey)` for each eligible script type:
-/// - **P2TR with `sp_tweak`**: reads the tweaked spend key from `sp_spend_bip32_derivations`.
-/// - **P2TR without `sp_tweak`**: reads `tap_internal_key`, promoted to even parity (BIP-352 §3).
+/// - **P2TR**: reads the taproot **output key** from the scriptPubKey, promoted to even parity
+///   (BIP-352 §3). This holds for SP-tweaked inputs too. `PSBT_IN_SP_TWEAK` only tweaks the
+///   *private* signing key (BIP-376 "Signer": `d = (b_spend + tweak) mod n`); the locking key
+///   committed on-chain is already `P = B_spend + tweak*G`, so the scriptPubKey carries the
+///   tweaked key. `PSBT_IN_SP_SPEND_BIP32_DERIVATION` (BIP-376 "Fields") carries the untweaked
+///   `B_spend` and is not used here.
 /// - **P2WPKH / P2PKH**: reads from `bip32_derivations`.
 /// - **P2SH-P2WPKH**: checks that `redeem_script` is P2WPKH, then reads from `bip32_derivations`.
 ///
@@ -376,27 +380,21 @@ pub fn extract_eligible_input_pubkey(
     }
 
     if spk.is_p2tr() {
-        if input.sp_tweak.is_some() {
-            // SP tweaked output: the tweaked spend key is what BIP-352 uses for ECDH.
-            let (pubkey, _, _) = input.get_sp_spend_bip32_derivation().ok_or_else(|| {
-                Error::Other("P2TR SP input missing sp_spend_bip32_derivation".to_string())
-            })?;
-            Ok(Some(pubkey))
-        } else {
-            // BIP-352 §3: use the taproot **output key** (from the scriptPubKey), not the
-            // internal key. The sender signs with the tweaked private key and the receiver
-            // reads the same key from the scriptPubKey.
-            //
-            // Exception (BIP-352 §3): if the internal key is NUMS_H the output has no
-            // key path, so there is no private key to contribute — skip this input.
-            if let Some(internal_key) = input.tap_internal_key {
-                if internal_key.serialize() == NUMS_H {
-                    return Ok(None);
-                }
+        // BIP-352 §3: use the taproot **output key** (from the scriptPubKey), not the
+        // internal key. The sender signs with the tweaked private key and the receiver
+        // reads the same key from the scriptPubKey. This is also the correct source for
+        // SP-tweaked inputs (see doc comment above), because the tweak is already baked
+        // into the locking key on-chain.
+        //
+        // Exception (BIP-352 §3): if the internal key is NUMS_H the output has no
+        // key path, so there is no private key to contribute; skip this input.
+        if let Some(internal_key) = input.tap_internal_key {
+            if internal_key.serialize() == NUMS_H {
+                return Ok(None);
             }
-            let output_xonly = XOnlyPublicKey::from_slice(&spk.as_bytes()[2..])?;
-            Ok(Some(output_xonly.public_key(Parity::Even)))
         }
+        let output_xonly = XOnlyPublicKey::from_slice(&spk.as_bytes()[2..])?;
+        Ok(Some(output_xonly.public_key(Parity::Even)))
     } else if spk.is_p2wpkh() || spk.is_p2pkh() {
         let (pubkey, _, _) = input
             .get_bip32_derivation()
