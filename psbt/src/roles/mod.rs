@@ -15,8 +15,10 @@
 //!   - Would handle union of ECDH shares, DLEQ proofs, and signatures
 //!   - Conflict detection for same-field different-value scenarios
 
+pub mod extractor;
 pub mod signer;
 pub mod updater;
 
+pub use extractor::*;
 pub use signer::*;
 pub use updater::*;
