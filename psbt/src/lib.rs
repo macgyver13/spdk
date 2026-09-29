@@ -9,6 +9,8 @@
 //! proofs, and signatures, and reject conflicting values for the same field.
 
 pub mod extractor;
+pub mod musig2;
+pub mod musig2_signer;
 pub mod signer;
 
 use psbt_v2::bitcoin::TxOut;

@@ -20,6 +20,10 @@ psbt = { path = "psbt" }
 
 # Core dependencies - shared across crates
 anyhow = "1.0"
+hmac = "0.12"
+musig2 = { version = "0.3.1", features = ["secp256k1"] }
+rand = { version = "0.8", features = ["std"] }
+sha2 = "0.10"
 bech32 = "0.9"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
@@ -38,7 +42,7 @@ reqwest = { version = "0.12.4", features = [
   "rustls-tls",
   "gzip",
 ], default-features = false }
-psbt-v2 = { git = "https://gitea.bitcoin.ninja/macgyver/rust-psbt.git", rev = "b1728695eedf84060000b693b464630ec95c920c", features = ["silent-payments", "miniscript"] }
+psbt-v2 = { git = "https://gitea.bitcoin.ninja/macgyver/rust-psbt.git", tag = "musig2-master303", features = ["miniscript", "musig2", "silent-payments"] }
 # DLEQ (BIP-374) backend decision (2026-09):
 # We use rust-dleq's pure-Rust `standalone` backend (the default in `silentpayments`
 # and `psbt`), pinned to this fork. It is verified against the official BIP-374
