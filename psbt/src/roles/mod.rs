@@ -13,6 +13,7 @@
 //!   - Conflict detection for same-field different-value scenarios
 
 pub mod extractor;
+pub mod musig2_signer;
 pub mod signer;
 
 pub use extractor::*;

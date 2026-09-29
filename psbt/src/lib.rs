@@ -3,6 +3,7 @@
 //! This module contains the BIP-375 PSBT functionality:
 //! - `roles`: PSBT role implementations (signer, finalizer, extractor)
 
+pub mod musig2;
 pub mod roles;
 
 pub use psbt_v2::Psbt;
