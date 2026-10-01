@@ -129,9 +129,10 @@ impl SpExtractorExt for Psbt {
             transaction_inputs.push(outpoint, spk.to_bytes(), pubkey);
         }
 
-        // TODO: A MuSig2 silent payment PSBT carries participant partial shares that only
-        // `musig2::shares::aggregate_ecdh_shares` combines, so its output scripts cannot be
-        // derived here and extraction fails. Verify them through the MuSig2 aggregation path too.
+        // A MuSig2 silent payment PSBT carries participant partial shares, which the Finalizer
+        // clears, so its output scripts cannot be derived here. Such PSBTs are verified by
+        // `musig2::finalize_sp_outputs` before finalizing and extracted with rust-psbt's
+        // `Extractor` directly.
         for (index, script) in
             derive_sp_output_scripts_from_inputs(self, secp, &transaction_inputs)?
         {

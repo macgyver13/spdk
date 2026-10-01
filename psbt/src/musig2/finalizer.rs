@@ -21,7 +21,12 @@ use super::shares::aggregate_ecdh_shares;
 use crate::signer::extract_eligible_input_pubkey;
 use psbt_v2::Psbt;
 
-/// Verify and aggregate MuSig2 ECDH contributions, then set every SP output.
+/// Verify and aggregate MuSig2 ECDH contributions, then derive every SP output
+/// script: set it when still unresolved, or check it when the signers already
+/// resolved it.
+///
+/// The Finalizer clears the MuSig2 partial shares, so this is the only point
+/// where a MuSig2 PSBT's SP outputs can be verified; call it before finalizing.
 pub fn finalize_sp_outputs(secp: &Secp256k1<secp256k1::All>, psbt: &mut Psbt) -> Result<()> {
     let aggregated = aggregate_ecdh_shares(psbt, secp)?;
 
@@ -75,8 +80,18 @@ pub fn finalize_sp_outputs(secp: &Secp256k1<secp256k1::All>, psbt: &mut Psbt) ->
             .filter(|keys| !keys.is_empty())
             .map(|keys| keys.remove(0))
             .ok_or_else(|| anyhow!("no derived output key for output {output_idx}"))?;
-        psbt.outputs[output_idx].script_pubkey =
-            ScriptBuf::new_p2tr_tweaked(TweakedPublicKey::dangerous_assume_tweaked(xonly));
+        let derived = ScriptBuf::new_p2tr_tweaked(TweakedPublicKey::dangerous_assume_tweaked(xonly));
+        let output = &mut psbt.outputs[output_idx];
+        if output.script_pubkey.is_empty() {
+            output.script_pubkey = derived;
+        } else if output.script_pubkey != derived {
+            // The signers committed to this script, so a mismatch means they and
+            // this finalizer disagree on the output; broadcasting would pay a
+            // script the recipient may never find.
+            return Err(anyhow!(
+                "output {output_idx} script does not match the one derived from the ECDH shares"
+            ));
+        }
     }
 
     psbt.global.tx_modifiable_flags = 0;
