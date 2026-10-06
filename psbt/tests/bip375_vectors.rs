@@ -36,6 +36,7 @@ enum Task {
     Finalize,
     FailSign,
     FailDeserialize,
+    Deserialize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,6 +122,12 @@ fn run_finalize(vector: &TestVector) -> VectorResult {
     }
 }
 
+fn run_deserialize(vector: &TestVector) -> VectorResult {
+    parse_psbt(&vector.psbt).expect("valid vector must deserialize through rust-psbt");
+
+    Ok(None)
+}
+
 fn run_sign(vector: &TestVector) -> VectorResult {
     let psbt = parse_psbt(&vector.psbt).expect("valid vector must deserialize through rust-psbt");
     match psbt.silent_payment_signer_checks() {
@@ -159,6 +166,7 @@ fn task_name(task: &Task) -> &'static str {
         Task::Finalize => "finalize",
         Task::FailSign => "fail_sign",
         Task::FailDeserialize => "fail_deserialize",
+        Task::Deserialize => "deserialize",
     }
 }
 
@@ -168,6 +176,7 @@ fn run_vector(vector: &TestVector) -> VectorResult {
         Task::Sign => run_sign(vector),
         Task::FailSign => run_fail_sign(vector),
         Task::FailDeserialize => run_fail_deserialize(vector),
+        Task::Deserialize => run_deserialize(vector),
     }
 }
 
