@@ -110,8 +110,7 @@ impl SpExtractorExt for Psbt {
                 input.spent_output_index,
             )
             .map_err(SpSignerError::from)?;
-            let spk = &input
-                .funding_utxo()
+            let spk = &crate::funding_utxo(input)
                 .map_err(SpSignerError::from)?
                 .script_pubkey;
             let script_sig = input

@@ -21,10 +21,12 @@ use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::{
     Amount, CompressedPublicKey, OutPoint, ScriptBuf, Sequence, TxOut, Txid, XOnlyPublicKey,
 };
-use psbt::signer::{ShareMode, SpSignerExt, extract_eligible_input_pubkey};
+use psbt::signer::{
+    ShareMode, SpSignerError, SpSignerExt, extract_eligible_input_pubkey,
+    sign_silent_payment_inputs,
+};
 use psbt_v2::{
-    Constructor, Creator, Extractor, Finalizer, Input, InputsOnlyModifiable, Output, Psbt, Signer,
-    SpV0Info,
+    Constructor, Creator, Extractor, Finalizer, Input, InputsOnlyModifiable, Output, Psbt, SpV0Info,
 };
 use secp256k1::{Message, Parity, PublicKey, Scalar, Secp256k1, SecretKey, rand};
 use silentpayments::receiving::{Label, Receiver};
@@ -149,7 +151,12 @@ fn transaction_inputs_for(psbt: &Psbt) -> TransactionInputs {
             input.spent_output_index,
         )
         .unwrap();
-        let spk = input.funding_utxo().unwrap().script_pubkey.to_bytes();
+        let spk = input
+            .witness_utxo
+            .as_ref()
+            .unwrap()
+            .script_pubkey
+            .to_bytes();
         let pubkey = extract_eligible_input_pubkey(input).unwrap();
         inputs.push(outpoint, spk, pubkey);
     }
@@ -641,16 +648,12 @@ fn test_sign_sp_inputs_produces_valid_taproot_sig() {
     let mut psbt = new_psbt(vec![payment_output], vec![outpoint(0)]);
     psbt.inputs[0] = sp_p2tr_input(&secp, outpoint(0), &spend_sk, tweak_bytes);
 
-    let (psbt, signed_keys) = Signer::new(psbt)
-        .unwrap()
-        .sign_silent_payment_inputs(&spend_sk, &secp)
-        .unwrap();
+    let psbt = sign_silent_payment_inputs(psbt, &spend_sk, &secp).unwrap();
 
     let tweaked = spend_sk
         .add_tweak(&Scalar::from_be_bytes(tweak_bytes).unwrap())
         .unwrap();
     let (output_key, _) = tweaked.x_only_public_key(&secp);
-    assert_eq!(signed_keys, vec![output_key]);
 
     let sig = psbt.inputs[0]
         .tap_key_sig
@@ -718,6 +721,50 @@ fn test_single_signer_sp_input_receiver_can_scan() {
     assert_receiver_scan_finds_outputs(&secp, &psbt, &scan_sk, &spend_pk);
 }
 
+/// Without `sp_spend_bip32_derivations`, the spend key is recovered from the
+/// output key and `sp_tweak`, and the recipient must still be able to scan.
+#[test]
+fn test_single_signer_sp_input_without_derivation_map_receiver_can_scan() {
+    let secp = secp();
+    let input_spend_sk = sk(1);
+    let scan_sk = sk(2);
+    let scan_pk = scan_sk.public_key(&secp);
+    let spend_pk = pk(&secp, 3);
+    let tweak_bytes = sk(7).secret_bytes();
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = sp_p2tr_input(&secp, outpoint(0), &input_spend_sk, tweak_bytes);
+    psbt.inputs[0].sp_spend_bip32_derivations.clear();
+
+    psbt.add_ecdh_shares(&secp, &mut rng(), &input_spend_sk, ShareMode::Global)
+        .unwrap();
+    psbt.commit_sp_outputs(&secp).unwrap();
+
+    assert_receiver_scan_finds_outputs(&secp, &psbt, &scan_sk, &spend_pk);
+}
+
+/// An `sp_tweak` that does not turn the held spend key into the output key must
+/// fail closed: no ECDH share is produced for a key the input does not commit to.
+#[test]
+fn test_sp_input_wrong_tweak_fails_key_resolution() {
+    let secp = secp();
+    let input_spend_sk = sk(1);
+    let scan_pk = sk(2).public_key(&secp);
+    let spend_pk = pk(&secp, 3);
+
+    let mut psbt = new_psbt(vec![sp_output(&scan_pk, &spend_pk)], vec![outpoint(0)]);
+    psbt.inputs[0] = sp_p2tr_input(&secp, outpoint(0), &input_spend_sk, sk(7).secret_bytes());
+    psbt.inputs[0].sp_tweak = Some(sk(8).secret_bytes());
+
+    let err = psbt
+        .add_ecdh_shares(&secp, &mut rng(), &input_spend_sk, ShareMode::Global)
+        .unwrap_err();
+    assert!(
+        matches!(err, SpSignerError::KeyResolution { vin: 0 }),
+        "expected KeyResolution for input 0, got {err:?}"
+    );
+}
+
 /// An SP input has no `tap_internal_key` (BIP-352 outputs have no internal
 /// key), so the finalizer must build the key-path witness from `tap_key_sig`
 /// alone. Regression test: rust-psbt's `construct_tap_witness` used to gate
@@ -741,10 +788,7 @@ fn test_sp_input_finalizes_without_tap_internal_key() {
         "SP inputs must not carry an internal key"
     );
 
-    let (psbt, _) = Signer::new(psbt)
-        .unwrap()
-        .sign_silent_payment_inputs(&spend_sk, &secp)
-        .unwrap();
+    let psbt = sign_silent_payment_inputs(psbt, &spend_sk, &secp).unwrap();
     let sig = psbt.inputs[0].tap_key_sig.expect("tap_key_sig set");
 
     let finalized = Finalizer::new(psbt)

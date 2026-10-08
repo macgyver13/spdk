@@ -9,8 +9,9 @@
 //! - **SP output script derivation** ([`SpSignerExt::derive_sp_output_scripts`]): the BIP-352
 //!   derivation that upstream's `commit_silent_payment_outputs` explicitly leaves to the caller.
 //!
-//! Signing itself is *not* re-implemented here: use upstream `Signer::sign` (ECDSA),
-//! `Signer::sign_taproot_key_spend_inputs` and `Signer::sign_silent_payment_inputs`.
+//! Signing itself is *not* re-implemented here: upstream's `SigningSession` produces the
+//! signatures and `Signer::apply` writes them. [`sign_silent_payment_inputs`] drives that session
+//! for a PSBT whose inputs are silent payment outputs.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -19,10 +20,10 @@ use bitcoin::key::TweakedPublicKey;
 use bitcoin::{CompressedPublicKey, ScriptBuf, XOnlyPublicKey};
 use psbt_v2::{
     CommitSilentPaymentOutputsError, DetermineLockTimeError, FundingUtxoError, GetKey, Input,
-    KeyRequest, Psbt, Signer as UpstreamSigner, SpV0Info,
+    KeyRequest, OutputType, Psbt, SignError, Signer as UpstreamSigner, SpV0Info,
 };
 use secp256k1::rand::{CryptoRng, RngCore};
-use secp256k1::{Parity, PublicKey, Scalar, Secp256k1, SecretKey, Signing, Verification};
+use secp256k1::{Parity, PublicKey, Secp256k1, SecretKey, Signing, Verification};
 use silentpayments::sending::generate_recipient_pubkeys;
 use silentpayments::utils::receiving::is_eligible;
 use silentpayments::utils::sending::{
@@ -281,7 +282,7 @@ impl SpSignerExt for Psbt {
                     }
                     let input_key = resolve_owned_eligible_key(secp, input, vin, keys)?
                         .ok_or(SpSignerError::KeyResolution { vin })?;
-                    let is_taproot = input.funding_utxo()?.script_pubkey.is_p2tr();
+                    let is_taproot = crate::funding_utxo(input)?.script_pubkey.is_p2tr();
                     summed_keys.push(NormalizedSecretKey::new(secp, input_key, is_taproot));
                 }
 
@@ -323,7 +324,7 @@ impl SpSignerExt for Psbt {
                     {
                         return Err(SpSignerError::SharesAlreadyPresent);
                     }
-                    let is_taproot = input.funding_utxo()?.script_pubkey.is_p2tr();
+                    let is_taproot = crate::funding_utxo(input)?.script_pubkey.is_p2tr();
                     owned.push((vin, NormalizedSecretKey::new(secp, input_key, is_taproot)));
                 }
                 if owned.is_empty() {
@@ -376,7 +377,7 @@ impl SpSignerExt for Psbt {
                 &input.previous_txid.to_string(),
                 input.spent_output_index,
             )?;
-            let spk = input.funding_utxo()?.script_pubkey.to_bytes();
+            let spk = crate::funding_utxo(input)?.script_pubkey.to_bytes();
             let pubkey = extract_eligible_input_pubkey(input)?;
             if pubkey.is_none() && is_ecdh_contributing(input)? {
                 return Err(SpSignerError::MissingInputPubkey { vin });
@@ -400,6 +401,37 @@ impl SpSignerExt for Psbt {
         *self = signer.psbt();
         Ok(())
     }
+}
+
+/// Signs every BIP-376 silent payment input `k` holds the spend key for and writes the signatures.
+///
+/// Non-P2TR inputs are left alone. A P2TR input without `PSBT_IN_SP_TWEAK`, or one whose tweaked
+/// spend key does not match its output key, is an error. Inputs are made signable through the
+/// trusted `assume_checked_input` path: silent payment PSBTs carry witness-only inputs, which the
+/// strict path rejects, and the BIP-375 signer checks run on both paths.
+pub fn sign_silent_payment_inputs<C, K>(
+    psbt: Psbt,
+    k: &K,
+    secp: &Secp256k1<C>,
+) -> Result<Psbt, SignError>
+where
+    C: Signing + Verification,
+    K: GetKey,
+{
+    let inputs_len = psbt.inputs.len();
+    let mut signer = UpstreamSigner::new(psbt).map_err(SignError::DetermineLockTime)?;
+    let sigs = {
+        let mut session = signer.session();
+        let mut sigs = Vec::new();
+        for index in 0..inputs_len {
+            let input = session.assume_checked_input(index)?;
+            if input.output_type() == OutputType::Tr {
+                sigs.push(session.get_silent_payment_sigs(&input, k, secp)?);
+            }
+        }
+        sigs
+    };
+    signer.apply(sigs)
 }
 
 /// Derives the silent payment output scripts from the PSBT's ECDH shares.
@@ -586,7 +618,7 @@ pub fn extract_eligible_input_pubkey(input: &Input) -> Result<Option<PublicKey>,
         return Ok(None);
     }
 
-    let funding_utxo = input.funding_utxo()?;
+    let funding_utxo = crate::funding_utxo(input)?;
     let spk = &funding_utxo.script_pubkey;
 
     if spk.is_p2tr() {
@@ -624,7 +656,7 @@ pub fn extract_eligible_input_pubkey(input: &Input) -> Result<Option<PublicKey>,
 /// script — a bare P2SH input (or one without `redeem_script` set yet) is
 /// treated as non-contributing.
 fn is_ecdh_contributing(input: &Input) -> Result<bool, SpSignerError> {
-    let spk = &input.funding_utxo()?.script_pubkey;
+    let spk = &crate::funding_utxo(input)?.script_pubkey;
     if !is_eligible(spk.as_bytes()) {
         return Ok(false);
     }
@@ -646,13 +678,11 @@ fn is_ecdh_contributing(input: &Input) -> Result<bool, SpSignerError> {
 /// The lookup strategy mirrors upstream signing so that the set of inputs we
 /// contribute ECDH shares for is exactly the set of inputs we can later sign:
 ///
-/// - **SP P2TR** (`sp_tweak` set): requests the *untweaked* spend key from
-///   `sp_spend_bip32_derivations` (BIP-32 first, then pubkey), falling back to candidate spend keys
-///   recovered from the output key when the map is empty — the same fallback rust-psbt's
-///   `sign_silent_payment_inputs` uses. The tweak is applied after lookup and verified against the
+/// - **SP P2TR** (`sp_tweak` set): upstream's `Input::silent_payment_secret_key`, the same lookup
+///   `SigningSession::get_silent_payment_sigs` signs with. It verifies the tweaked key against the
 ///   prevout's output key, so a wrong or malicious `sp_tweak` fails closed here.
 /// - **Plain P2TR**: requests the even-lifted output key by pubkey, like upstream's
-///   `sign_taproot_key_spend_inputs`.
+///   `SigningSession::get_input_sigs`.
 /// - **P2WPKH / P2PKH / P2SH-P2WPKH**: iterates `bip32_derivations`, but only after verifying the
 ///   pubkey against the funding script — a wrong pubkey here produces a share the receiver can
 ///   never match.
@@ -668,7 +698,7 @@ where
     C: Signing + Verification,
     K: GetKey,
 {
-    let funding_utxo = input.funding_utxo()?;
+    let funding_utxo = crate::funding_utxo(input)?;
     let spk = &funding_utxo.script_pubkey;
 
     if !is_eligible(spk.as_bytes()) {
@@ -684,42 +714,20 @@ where
             })
     };
 
-    if let Some(tweak_bytes) = input.sp_tweak {
-        if !spk.is_p2tr() {
-            return Err(SpSignerError::MalformedInput {
-                vin,
-                detail: "sp_tweak set on a non-P2TR input",
+    if input.sp_tweak.is_some() {
+        return input
+            .silent_payment_secret_key(keys, secp)
+            .map_err(|error| match error {
+                SignError::NotSilentPaymentInput => SpSignerError::MalformedInput {
+                    vin,
+                    detail: "sp_tweak set on a non-P2TR input",
+                },
+                SignError::InvalidSpTweak => SpSignerError::InvalidSpTweak { vin },
+                error => SpSignerError::GetKey {
+                    vin,
+                    error: format!("{error:?}"),
+                },
             });
-        }
-        let tweak = Scalar::from_be_bytes(tweak_bytes)
-            .map_err(|_| SpSignerError::InvalidSpTweak { vin })?;
-        let output_xonly = XOnlyPublicKey::from_slice(&spk.as_bytes()[2..34])?;
-
-        // BIP-376: the derivation map is keyed by the *untweaked* spend key.
-        for (spend_key, key_source) in &input.sp_spend_bip32_derivations {
-            let sk = match get(KeyRequest::Bip32(key_source.clone()))? {
-                Some(sk) => Some(sk),
-                None => get(KeyRequest::Pubkey(bitcoin::PublicKey::from(*spend_key)))?,
-            };
-            if let Some(tweaked) =
-                sk.and_then(|sk| apply_tweak_and_verify(secp, sk, tweak, output_xonly))
-            {
-                return Ok(Some(tweaked));
-            }
-        }
-
-        // Fallback for an unpopulated map: recover candidate spend keys from the
-        // output key, mirroring rust-psbt's signing fallback.
-        if input.sp_spend_bip32_derivations.is_empty() {
-            for candidate in spend_key_candidates(output_xonly, tweak, secp) {
-                if let Some(tweaked) = get(KeyRequest::Pubkey(candidate))?
-                    .and_then(|sk| apply_tweak_and_verify(secp, sk, tweak, output_xonly))
-                {
-                    return Ok(Some(tweaked));
-                }
-            }
-        }
-        return Ok(None);
     }
 
     if spk.is_p2tr() {
@@ -750,42 +758,6 @@ where
         }
     }
     Ok(None)
-}
-
-/// Apply `sp_tweak` to a candidate spend key and check it produces the prevout's
-/// output key (x-only comparison). This is the fail-closed BIP-376 tweak check.
-fn apply_tweak_and_verify<C: Signing>(
-    secp: &Secp256k1<C>,
-    spend_sk: SecretKey,
-    tweak: Scalar,
-    output_key: XOnlyPublicKey,
-) -> Option<SecretKey> {
-    let tweaked = spend_sk.add_tweak(&tweak).ok()?;
-    (tweaked.x_only_public_key(secp).0 == output_key).then_some(tweaked)
-}
-
-/// Candidate untweaked spend keys for an SP output key: `output_key - tweak·G`
-/// under both parities. Mirrors rust-psbt's private `spend_key_candidates`.
-fn spend_key_candidates<C: Signing + Verification>(
-    output_key: XOnlyPublicKey,
-    tweak: Scalar,
-    secp: &Secp256k1<C>,
-) -> Vec<bitcoin::PublicKey> {
-    if tweak == Scalar::ZERO {
-        return [Parity::Even, Parity::Odd]
-            .into_iter()
-            .map(|p| bitcoin::PublicKey::new(output_key.public_key(p)))
-            .collect();
-    }
-    let Ok(tweak_sk) = SecretKey::from_slice(&tweak.to_be_bytes()) else {
-        return Vec::new();
-    };
-    let negated_tweak_key = tweak_sk.public_key(secp).negate(secp);
-    [Parity::Even, Parity::Odd]
-        .into_iter()
-        .filter_map(|p| output_key.public_key(p).combine(&negated_tweak_key).ok())
-        .map(bitcoin::PublicKey::new)
-        .collect()
 }
 
 /// Check that `pubkey` is the key committed by the funding scriptPubKey.

@@ -12,7 +12,7 @@ use bitcoin::{Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxOut
 use psbt::extractor::SpExtractorExt as _;
 use psbt::signer::{ShareMode, SpSignerExt as _};
 use psbt_v2::Psbt;
-use psbt_v2::{Constructor, Extractor, Finalizer, Input, Modifiable, Output, Signer, SpV0Info};
+use psbt_v2::{Constructor, Extractor, Finalizer, Input, Modifiable, Output, SpV0Info};
 use silentpayments::Network as SpNetwork;
 use spdk_core::scanner::DiscoveredOutput;
 
@@ -302,8 +302,9 @@ impl SpClient {
     pub fn sign_inputs(&self, psbt: Psbt) -> Result<Psbt> {
         let spend_sk = self.try_secret_spend_key()?;
         let secp = Secp256k1::new();
-        let (psbt, _) = Signer::new(psbt)?.sign_silent_payment_inputs(&spend_sk, &secp)?;
-        Ok(psbt)
+        Ok(psbt::signer::sign_silent_payment_inputs(
+            psbt, &spend_sk, &secp,
+        )?)
     }
 
     /// Builds each input's final scriptSig and witness from its signatures.
